@@ -59,8 +59,8 @@ async def create_agent():
     # Create and return agent with all tools
     agent = LlmAgent(
         name="hackmd_agent",
-        # model="gemini-2.0-flash",
-        model=LiteLlm(model="gpt-4o"),
+        model="gemini-2.5-pro-exp-03-25",
+        # model=LiteLlm(model="gpt-4o"),
         description=(
             "Agent to interact with HackMD documents using document IDs extracted from URLs."
         ),
