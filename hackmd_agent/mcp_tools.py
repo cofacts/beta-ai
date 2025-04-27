@@ -96,7 +96,7 @@ async def _test_run():
     await stack.aclose()
     print("--- Connections closed. Test finished. ---")
 
+# This allows testing the script directly using `uv run --env-file .env tools.py`
+#
 if __name__ == "__main__":
-    # This allows testing the script directly using `python hackmd_agent/tools.py`
-    # Make sure the required environment variables are available when running.
     asyncio.run(_test_run())

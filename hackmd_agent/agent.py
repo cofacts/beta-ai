@@ -1,9 +1,9 @@
 import re
 import asyncio
-from google.adk.agents import Agent
+from google.adk.agents import LlmAgent
 
 # Import our MCP tools fetcher
-from .tools import get_mcp_tools_async
+from .mcp_tools import get_mcp_tools_async
 
 def extract_hackmd_id(url: str) -> dict:
     """
@@ -47,23 +47,16 @@ def extract_hackmd_id(url: str) -> dict:
         }
 
 
-# Create an agent with both local tools and MCP tools
-# We use a synchronized wrapper around the async code to maintain simplicity
-def get_agent_with_mcp_tools():
+# From: https://google.github.io/adk-docs/tools/mcp-tools/#mcp-with-adk-web
+async def create_agent():
     """Get an agent that includes both local and MCP tools."""
 
-    # Run the async code in a new event loop
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    # Get MCP tools
-    mcp_tools, _ = loop.run_until_complete(get_mcp_tools_async())
-    loop.close()
+    mcp_tools, exit_stack = await get_mcp_tools_async()
 
     all_tools = [extract_hackmd_id] + mcp_tools
 
     # Create and return agent with all tools
-    return Agent(
+    agent = LlmAgent(
         name="hackmd_agent",
         model="gemini-2.0-flash",
         description=(
@@ -78,7 +71,6 @@ def get_agent_with_mcp_tools():
         tools=all_tools,
     )
 
+    return agent, exit_stack
 
-# This maintains a simple root_agent that can be imported directly
-root_agent = get_agent_with_mcp_tools()
-
+root_agent = create_agent()
