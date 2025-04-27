@@ -3,13 +3,11 @@
 ## Initial Setup
 
 1.  **Set up Environment Variables:**
-    Each agent directory (e.g., `hackmd_agent/`, `multi_tool_agent/`) contains a `.env.sample` file. Copy this file to `.env` within the same directory and fill in the required values (like API keys or tokens).
+    The project root contains a `.env.sample` file. Copy this file to `.env` within the same directory and fill in the required values (like API keys or tokens).
     ```bash
-    # Example for hackmd_agent
-    cp hackmd_agent/.env.sample hackmd_agent/.env
-    # Then edit hackmd_agent/.env
+    cp .env.sample .env
+    # Then edit .env
     ```
-    *(Repeat for other agents as needed)*
 
 2.  **Ensure `uv` is installed:**
     Follow the installation instructions at [https://docs.astral.sh/uv/install/](https://docs.astral.sh/uv/install/).
@@ -29,6 +27,25 @@ Use `uv run` to execute the `adk web` command. `uv` will automatically ensure th
 uv run adk web
 ```
 The web interface will be available at `localhost:8000`.
+
+## Running with Docker Compose
+
+1. Copy the sample environment file and edit it as needed:
+   ```bash
+   cp .env.sample .env
+   # Edit .env to fill in required values
+   ```
+
+2. Build and start the service:
+   ```bash
+   docker compose up --build
+   ```
+   The web interface will be available at http://localhost:8000
+
+3. To stop the service:
+   ```bash
+   docker compose down
+   ```
 
 ## Adding New Dependencies (for Developers)
 
