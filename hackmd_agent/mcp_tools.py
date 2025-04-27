@@ -23,7 +23,8 @@ MCP_SERVER_CONFIGS = {
         "args": [
             "run", "-i", "--rm",
             "-e", "GITHUB_PERSONAL_ACCESS_TOKEN",
-            "ghcr.io/github/github-mcp-server"
+            # Newer versions suffer from https://github.com/github/github-mcp-server/issues/343
+            "ghcr.io/github/github-mcp-server:v0.1.1"
         ],
         "env": {
             "GITHUB_PERSONAL_ACCESS_TOKEN": os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN"),

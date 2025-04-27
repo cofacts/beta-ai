@@ -1,6 +1,7 @@
 import re
 import asyncio
 from google.adk.agents import LlmAgent
+from google.adk.models.lite_llm import LiteLlm
 
 # Import our MCP tools fetcher
 from .mcp_tools import get_mcp_tools_async
@@ -58,7 +59,8 @@ async def create_agent():
     # Create and return agent with all tools
     agent = LlmAgent(
         name="hackmd_agent",
-        model="gemini-2.0-flash",
+        # model="gemini-2.0-flash",
+        model=LiteLlm(model="gpt-4o"),
         description=(
             "Agent to interact with HackMD documents using document IDs extracted from URLs."
         ),
