@@ -29,6 +29,17 @@ MCP_SERVER_CONFIGS = {
         "env": {
             "GITHUB_PERSONAL_ACCESS_TOKEN": os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN"),
         }
+    },
+    "discord": {
+        "command": "uv",
+        "args": [
+            "--directory", os.path.join(os.path.dirname(__file__), "..", "..", "mcp-discord"),
+            "run",
+            "mcp-discord"
+        ],
+        "env": {
+            "DISCORD_TOKEN": os.getenv("DISCORD_TOKEN"),
+        }
     }
 }
 
