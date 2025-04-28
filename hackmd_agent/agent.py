@@ -82,6 +82,12 @@ async def create_agent():
                 - Draft the new document containing items to follow-up next week
                 - Ask the user to confirm if they want to create the document on HackMD
 
+            You are also connected to Cofacts' Discord server.
+            Here are the channels you can access:
+            - Channel ID `1060178087947542563`: General channel
+            - Channel ID `1164454086243012608`: Server alerts
+            - Channel ID `1062999869314322473`: Github activities
+
             ## TASK DETAILS: Generate a title for the current meeting note
 
             The user may provide a HackMD URL when asking for a title.
