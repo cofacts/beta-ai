@@ -78,7 +78,7 @@ root_agent = LlmAgent(
         - Each link href contains a HackMD document ID prepended by `/`.
 
         When the user says the meeting ends, you should help them to:
-        1. Generate a title for the current meeting note using `read_hackmd_note` and your understanding.
+        1. Generate a title for the current meeting note.
         2. Summarize actionable items from the meeting note.
             - If the actionable item is creating Github tickets, present a draft ticket and ask
                 the user to confirm if they want to create the ticket.
