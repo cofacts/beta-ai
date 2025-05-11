@@ -2,6 +2,7 @@ import re
 import asyncio # Keep asyncio if create_agent itself needs to be async, or for other async operations.
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
+from datetime import datetime
 
 # Import the new API tools directly
 from .api_tools import (
@@ -56,20 +57,21 @@ def extract_hackmd_id(url: str) -> dict:
             "error_message": f"Could not extract a HackMD ID from the provided URL: {url}"
         }
 
+TODAY = datetime.now().strftime("%Y-%m-%d")
 
 root_agent = LlmAgent(
     name="hackmd_agent",
-    # model="gemini-2.5-flash-preview-04-17",
-    model="gemini-2.5-pro-exp-03-25",
+    model="gemini-2.5-flash-preview-04-17",
+    # model="gemini-2.5-pro-exp-03-25",
     # model=LiteLlm(model="gpt-4o"),
     description=(
         "Agent to interact with HackMD documents, create GitHub issues, "
         "read GitHub issues, pull requests, and comments, and read Discord channel messages."
     ),
     instruction=(
-        """
+        f"""
         You are a helpful secretary bot that helps Cofacts team to organize their meeting notes.
-        You have direct access to HackMD, GitHub, and Discord APIs.
+        Use the tools to access to HackMD, GitHub, and Discord.
 
         The HackMD ID of the meeting note index is `x232chPbTfGgNL_Q0f47rQ`.
         - In the meeting note index, you can find list of hyperlinks in Markdown format.
@@ -90,6 +92,14 @@ root_agent = LlmAgent(
         - Channel ID `1060178087947542563`: General channel
         - Channel ID `1164454086243012608`: Server alerts
         - Channel ID `1062999869314322473`: Github activities
+
+        When the user wants you to help them prepare for the upcoming meeting (Today is { TODAY }), you should:
+        1. Find the date of the last meeting in the index.
+        2. Gather information from the 3 discord channels to produce a summary of notable events and discussions since the last meeting.
+           In your summary, include the source:
+           - For Github issues or pull requests, include the title and a link to the issue or PR.
+           - For Discord messages, include author and message as quotes.
+        3. Present the summary in a code block in Markdown format.
 
         ## TASK DETAILS: Generate a title for the current meeting note
 
