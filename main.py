@@ -1,10 +1,5 @@
 import os
 import base64
-
-import uvicorn
-from fastapi import FastAPI
-from google.adk.cli.fast_api import get_fast_api_app
-
 from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
@@ -31,6 +26,8 @@ if LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY and OTEL_EXPORTER_OTLP_ENDPOINT:
 else:
     print(f"Langfuse OpenTelemetry tracing will be disabled.")
 
+from fastapi import FastAPI
+from google.adk.cli.fast_api import get_fast_api_app
 
 # Get the directory where main.py is located
 AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -48,5 +45,6 @@ app: FastAPI = get_fast_api_app(
 )
 
 if __name__ == "__main__":
+  import uvicorn
   # Use the PORT environment variable provided by Cloud Run, defaulting to 8080
   uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
