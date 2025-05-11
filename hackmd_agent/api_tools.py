@@ -3,6 +3,7 @@ import httpx
 import os
 import json
 from typing import Optional, Dict, Any, List
+import re # Added for GitHub URL parsing
 
 # Attempt to get base URL and token from environment variables
 HACKMD_API_URL = os.getenv("HACKMD_API_URL", "https://api.hackmd.io/v1") # Default if not set
@@ -164,7 +165,7 @@ GITHUB_API_URL = "https://api.github.com"
 GITHUB_TOKEN = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN") # Ensure this matches your .env
 GITHUB_API_VERSION = "2022-11-28"
 
-async def _make_github_request(method: str, endpoint: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _make_github_request(method: str, endpoint: str, payload: Optional[Dict[str, Any]] = None, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Helper function to make requests to the GitHub API."""
     if not GITHUB_TOKEN:
         return {"status": "error", "error_message": "GITHUB_PERSONAL_ACCESS_TOKEN is not set in environment variables."}
@@ -173,27 +174,34 @@ async def _make_github_request(method: str, endpoint: str, payload: Optional[Dic
         "Accept": "application/vnd.github+json",
         "Authorization": f"Bearer {GITHUB_TOKEN}",
         "X-GitHub-Api-Version": GITHUB_API_VERSION,
-        "Content-Type": "application/json"
     }
+    if method.upper() in ["POST", "PATCH", "PUT"]: # Content-Type only for methods with a body
+        headers["Content-Type"] = "application/json"
+
     url = f"{GITHUB_API_URL.rstrip('/')}/{endpoint.lstrip('/')}"
 
     async with httpx.AsyncClient() as client:
         try:
             response = None
-            if method.upper() == "POST":
-                response = await client.post(url, headers=headers, json=payload)
-            # Add other methods like GET, PATCH if needed for future GitHub tools
+            if method.upper() == "GET":
+                response = await client.get(url, headers=headers, params=params)
+            elif method.upper() == "POST":
+                response = await client.post(url, headers=headers, json=payload, params=params)
+            elif method.upper() == "PATCH":
+                response = await client.patch(url, headers=headers, json=payload, params=params)
             else:
                 return {"status": "error", "error_message": f"Unsupported HTTP method for GitHub: {method}"}
 
             response.raise_for_status()
+            if response.status_code == 204: # No content
+                return {"status": "success", "data": None}
             return {"status": "success", "data": response.json()}
         except httpx.HTTPStatusError as e:
             error_detail = e.response.text
             try:
-                error_json = e.response.json() # GitHub errors are usually JSON
+                error_json = e.response.json()
                 error_detail = error_json.get("message", error_detail)
-                if "errors" in error_json: # More detailed errors
+                if "errors" in error_json:
                     error_detail += f" Details: {json.dumps(error_json['errors'])}"
             except json.JSONDecodeError:
                 pass
@@ -246,6 +254,105 @@ async def create_github_issue(
 
     if result["status"] == "success":
         return {"status": "success", "issue_data": result["data"]}
+    return result
+
+def parse_github_url(url: str) -> Optional[Dict[str, Any]]:
+    """
+    Parses a GitHub URL to extract owner, repo, type (issues/pull), number, and comment_id.
+    Handles URLs like:
+    - https://github.com/OWNER/REPO/issues/NUMBER
+    - https://github.com/OWNER/REPO/pull/NUMBER
+    - https://github.com/OWNER/REPO/issues/NUMBER#issuecomment-COMMENT_ID
+    - https://github.com/OWNER/REPO/pull/NUMBER#issuecomment-COMMENT_ID
+    """
+    pattern = re.compile(
+        r"https://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/"
+        r"(?P<type>issues|pull)/(?P<number>\d+)"
+        r"(?:#issuecomment-(?P<comment_id>\d+))?"
+    )
+    match = pattern.match(url)
+    if match:
+        data = match.groupdict()
+        data['number'] = int(data['number'])
+        if data.get('comment_id'): # Use .get() for safety if comment_id might be None from regex
+            data['comment_id'] = int(data['comment_id'])
+        return data
+    return None
+
+async def get_github_issue_from_url(url: str) -> Dict[str, Any]:
+    """
+    Fetches details for a specific GitHub issue using its URL.
+
+    Args:
+        url (str): The URL of the GitHub issue (e.g., "https://github.com/owner/repo/issues/123").
+
+    Returns:
+        dict: Issue details if successful, or an error message.
+    """
+    parsed_url = parse_github_url(url)
+    if not parsed_url or parsed_url['type'] != 'issues':
+        return {"status": "error", "error_message": "Invalid GitHub issue URL or URL is not for an issue."}
+
+    owner = parsed_url['owner']
+    repo = parsed_url['repo']
+    issue_number = parsed_url['number']
+
+    endpoint = f"repos/{owner}/{repo}/issues/{issue_number}"
+    result = await _make_github_request("GET", endpoint)
+    if result["status"] == "success":
+        return {"status": "success", "issue_data": result["data"]}
+    return result
+
+async def get_github_pull_request_from_url(url: str) -> Dict[str, Any]:
+    """
+    Fetches details for a specific GitHub pull request using its URL.
+
+    Args:
+        url (str): The URL of the GitHub pull request (e.g., "https://github.com/owner/repo/pull/123").
+
+    Returns:
+        dict: Pull request details if successful, or an error message.
+    """
+    parsed_url = parse_github_url(url)
+    if not parsed_url or parsed_url['type'] != 'pull':
+        return {"status": "error", "error_message": "Invalid GitHub pull request URL or URL is not for a pull request."}
+
+    owner = parsed_url['owner']
+    repo = parsed_url['repo']
+    pr_number = parsed_url['number']
+
+    endpoint = f"repos/{owner}/{repo}/pulls/{pr_number}"
+    result = await _make_github_request("GET", endpoint)
+    if result["status"] == "success":
+        return {"status": "success", "pull_request_data": result["data"]}
+    return result
+
+async def get_github_comment_from_url(url: str) -> Dict[str, Any]:
+    """
+    Fetches details for a specific GitHub issue or PR comment using its URL.
+    The URL should contain a fragment like #issuecomment-COMMENT_ID.
+
+    Args:
+        url (str): The URL pointing to the comment (e.g., "https://github.com/owner/repo/issues/123#issuecomment-456").
+
+    Returns:
+        dict: Comment details if successful, or an error message.
+    """
+    parsed_url = parse_github_url(url)
+    if not parsed_url or not parsed_url.get('comment_id'):
+        return {"status": "error", "error_message": "Invalid GitHub comment URL or comment ID not found in URL."}
+
+    owner = parsed_url['owner']
+    repo = parsed_url['repo']
+    comment_id = parsed_url['comment_id']
+
+    # GitHub API endpoint for issue comments (also applies to PR comments)
+    # Note: The API endpoint for PR review comments is different (/repos/{owner}/{repo}/pulls/comments/{comment_id})
+    # This current implementation targets general issue/PR comments linked via #issuecomment-
+    endpoint = f"repos/{owner}/{repo}/issues/comments/{comment_id}"
+    result = await _make_github_request("GET", endpoint)
+    if result["status"] == "success":
+        return {"status": "success", "comment_data": result["data"]}
     return result
 
 # Discord API Configuration

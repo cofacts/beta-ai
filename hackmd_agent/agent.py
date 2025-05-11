@@ -9,7 +9,10 @@ from .api_tools import (
     create_hackmd_note,
     update_hackmd_note,
     create_github_issue,
-    get_discord_channel_messages
+    get_discord_channel_messages,
+    get_github_issue_from_url,
+    get_github_pull_request_from_url,
+    get_github_comment_from_url
 )
 
 def extract_hackmd_id(url: str) -> dict:
@@ -60,8 +63,8 @@ root_agent = LlmAgent(
     model="gemini-2.5-pro-exp-03-25",
     # model=LiteLlm(model="gpt-4o"),
     description=(
-        "Agent to interact with HackMD documents using document IDs extracted from URLs, "
-        "create GitHub issues, and read Discord channel messages." # Updated description
+        "Agent to interact with HackMD documents, create GitHub issues, "
+        "read GitHub issues, pull requests, and comments, and read Discord channel messages."
     ),
     instruction=(
         """
@@ -139,8 +142,9 @@ root_agent = LlmAgent(
         create_hackmd_note,
         update_hackmd_note,
         create_github_issue,
-        get_discord_channel_messages
+        get_discord_channel_messages,
+        get_github_issue_from_url,
+        get_github_pull_request_from_url,
+        get_github_comment_from_url
     ],
 )
-
-
