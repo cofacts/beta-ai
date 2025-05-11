@@ -250,15 +250,15 @@ async def create_github_issue(
 
 # Discord API Configuration
 DISCORD_API_URL = "https://discord.com/api/v10"  # Using v10, adjust if needed
-DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN") # Ensure this matches your .env
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN") # Ensure this matches your .env
 
 async def _make_discord_request(method: str, endpoint: str, params: Optional[Dict[str, Any]] = None, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Helper function to make requests to the Discord API."""
-    if not DISCORD_BOT_TOKEN:
-        return {"status": "error", "error_message": "DISCORD_BOT_TOKEN is not set in environment variables."}
+    if not DISCORD_TOKEN:
+        return {"status": "error", "error_message": "DISCORD_TOKEN is not set in environment variables."}
 
     headers = {
-        "Authorization": f"Bot {DISCORD_BOT_TOKEN}", # Note "Bot" prefix
+        "Authorization": f"Bot {DISCORD_TOKEN}", # Note "Bot" prefix
         "Content-Type": "application/json"
     }
     url = f"{DISCORD_API_URL.rstrip('/')}/{endpoint.lstrip('/')}"
