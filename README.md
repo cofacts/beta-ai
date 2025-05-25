@@ -65,3 +65,12 @@ To add a new dependency:
 
 2.  **Commit the changes:**
     Commit **both** the updated `pyproject.toml` and `uv.lock` files to version control. This ensures that other developers and deployment environments use the exact same set of dependencies. Other developers will automatically get the new dependency the next time they use `uv run` or if they explicitly run `uv sync`.
+
+## Deploy
+
+```bash
+docker build -t cofacts/beta-ai .
+docker push cofacts/beta-ai
+```
+
+And go to server to pull & run the image.
