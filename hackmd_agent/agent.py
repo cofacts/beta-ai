@@ -61,8 +61,7 @@ TODAY = datetime.now().strftime("%Y-%m-%d")
 
 root_agent = LlmAgent(
     name="hackmd_agent",
-    model="gemini-2.5-flash-preview-04-17",
-    # model="gemini-2.5-pro-exp-03-25",
+    model="gemini-2.5-pro",
     # model=LiteLlm(model="gpt-4o"),
     description=(
         "Agent to interact with HackMD documents, create GitHub issues, "
