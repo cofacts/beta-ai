@@ -209,6 +209,10 @@ ai_proofreader_kmt = LlmAgent(
     - Opportunities for more balanced presentation
     - Suggestions for addressing legitimate conservative concerns
 
+    ## Control Flow:
+    If the user wants to continue discussing this message from a KMT perspective, engage with them.
+    Otherwise, transfer back to the main AI Writer.
+
     Provide respectful, measured analysis that helps ensure fact-checking is credible across political divides.
     """,
     tools=[]
@@ -247,6 +251,10 @@ ai_proofreader_dpp = LlmAgent(
     - Language that might undermine Taiwan's democratic values
     - Opportunities for highlighting Taiwan identity
     - Suggestions for addressing progressive concerns
+
+    ## Control Flow:
+    If the user wants to continue discussing this message from a DPP perspective, engage with them.
+    Otherwise, transfer back to the main AI Writer.
 
     Provide engaged, democratic analysis that helps ensure fact-checking resonates with progressive audiences.
     """,
@@ -287,6 +295,10 @@ ai_proofreader_tpp = LlmAgent(
     - Suggestions for emphasizing rational, data-driven analysis
     - Ways to appeal to centrist, pragmatic audiences
 
+    ## Control Flow:
+    If the user wants to continue discussing this message from a TPP perspective, engage with them.
+    Otherwise, transfer back to the main AI Writer.
+
     Provide rational, balanced analysis that helps ensure fact-checking appeals to moderate voters seeking practical solutions.
     """,
     tools=[]
@@ -325,6 +337,10 @@ ai_proofreader_minor_parties = LlmAgent(
     - Language that might ignore minority perspectives
     - Opportunities for more inclusive representation
     - Suggestions for highlighting often-overlooked viewpoints
+
+    ## Control Flow:
+    If the user wants to continue discussing this message from a minor parties perspective, engage with them.
+    Otherwise, transfer back to the main AI Writer.
 
     Provide engaged, civic-minded analysis that helps ensure fact-checking includes diverse voices and perspectives.
     """,
@@ -407,7 +423,9 @@ ai_writer = LlmAgent(
     5. **Source Evaluation**: Have political perspective agents review key sources and materials used
 
     6. **Compose Reply**:
-       - Write fact-check reply following Cofacts format
+       - Write fact-check reply following Cofacts format (separate text and references fields)
+       - Text field: Focus on clear explanation without URLs or citations
+       - References field: List all supporting sources separately
        - Focus on persuading or kindly reminding people who share/receive such messages
        - If factual statements are false, search for diverse opinions to offer readers
 
@@ -424,18 +442,40 @@ ai_writer = LlmAgent(
 
     ## Cofacts Reply Format:
 
+    **IMPORTANT**: Cofacts has separate fields for content and sources. Never mix references/URLs directly into the main text content.
+
     Based on your analysis, classify the message as one of:
     - **Contains true information** (含有正確訊息)
     - **Contains misinformation** (含有錯誤訊息)
     - **Contains personal perspective** (含有個人意見)
 
-    ### For "Contains true information" or "Contains misinformation":
-    - **text**: Brief intro pointing out which parts are correct/incorrect
-    - **references**: URLs with 1-line summaries for each
+    ### Format Structure:
 
-    ### For "Contains personal perspective":
-    - **text**: (1) Explain which parts contain personal opinion, (2) Remind audience this is not factual
-    - **Opinion Sources**: URLs with 1-line summaries
+    **For "Contains true information" or "Contains misinformation":**
+
+    **Text Field (內文):**
+    - Write a clear, self-contained explanation
+    - Point out which specific parts are correct/incorrect
+    - Explain the facts without embedding URLs or reference numbers
+    - Use neutral, educational tone
+    - Do NOT include URLs, links, or reference citations in this text
+
+    **References Field (出處):**
+    - List each source URL on a separate line
+    - Add a brief 1-line summary after each URL explaining its relevance
+    - Format: [URL] - [Brief description of what this source provides]
+
+    **For "Contains personal perspective":**
+
+    **Text Field (內文):**
+    - Explain which parts contain personal opinions vs. factual claims
+    - Remind readers that opinions are not factual statements
+    - Provide context about why this matters for public discourse
+    - Do NOT include URLs or citations in this text
+
+    **Opinion Sources Field (意見出處):**
+    - URLs with 1-line summaries showing diverse perspectives
+    - Include sources representing different viewpoints when available
 
     ## How to Use Political Perspective Agents:
 
