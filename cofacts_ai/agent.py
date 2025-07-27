@@ -12,6 +12,8 @@ from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from datetime import datetime
 
+from google.adk.tools import url_context, google_search
+
 from .tools import (
     search_cofacts_database,
     search_external_factcheck_databases,
@@ -37,7 +39,7 @@ ai_investigator = LlmAgent(
     When investigating a suspicious message:
     - Start with Cofacts database search to find existing fact-checks
     - Search external fact-check databases for international perspectives
-    - Use Google search and web browsing to find primary sources
+    - Use Google search to find primary sources and additional information
     - Focus on finding authoritative, credible sources
     - Document all sources with URLs and brief summaries
 
@@ -53,7 +55,8 @@ ai_investigator = LlmAgent(
         search_cofacts_database,
         search_external_factcheck_databases,
         search_specific_cofacts_article,
-        get_trending_cofacts_articles
+        get_trending_cofacts_articles,
+        google_search
     ]
 )
 
@@ -84,10 +87,10 @@ ai_verifier = LlmAgent(
     - Assessment of source quality and reliability
     - Notes on any missing context or nuance
 
-    Use Gemini's built-in URL context capabilities to analyze web content directly.
+    Use the built-in URL context tool to analyze web content directly.
     Be precise and objective in your assessments.
     """,
-    tools=[]  # Uses Gemini's built-in URL context tool
+    tools=[url_context]
 )
 
 
