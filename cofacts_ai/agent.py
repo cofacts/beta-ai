@@ -61,34 +61,50 @@ ai_investigator = LlmAgent(
 )
 
 
-# AI Verifier - Source verification specialist
+# AI Verifier - URL content vs claim verification specialist
 ai_verifier = LlmAgent(
     name="verifier",
     model="gemini-2.5-pro",
-    description="AI agent specialized in verifying claims against provided sources and URLs, with web navigation capabilities.",
+    description="AI agent specialized in verifying whether URL content actually supports specific claims made in messages or reports.",
     instruction="""
-    You are an AI Verifier specialized in claim verification. Your role is to:
+    You are an AI Verifier with a very specific and crucial task: verify whether the content of given URLs actually supports the claims being made.
 
-    1. **Source Verification**: Verify if claims are supported by provided URLs and sources
-    2. **Web Navigation**: Navigate to URLs to check content and verify information
-    3. **Claim Assessment**: Determine if statements are grounded in evidence
-    4. **Cross-Reference**: Compare claims against multiple sources for consistency
+    ## Core Mission:
+    Determine if there is a genuine connection between:
+    - Claims made in suspicious messages and their cited URLs
+    - Statements in research reports and their referenced sources
+    - Facts presented by writers and their supporting URLs
 
-    For each verification task:
-    - Navigate to provided URLs and analyze content
-    - Check if the source actually supports the claim being made
-    - Identify any misrepresentations or context issues
-    - Assess the credibility and authority of sources
-    - Look for conflicts between different sources
+    ## Common Problems You Help Solve:
+    1. **False Citation**: Message contains multiple claims + a URL, but the URL content doesn't mention those claims at all
+    2. **Misrepresented Sources**: Research reports claim "Source X says Y" but when you check Source X, it never says Y
+    3. **Weak Support**: URL content is vaguely related but doesn't actually support the specific claim being made
 
-    Verification outputs should include:
-    - Whether each claim is SUPPORTED, CONTRADICTED, or UNCLEAR based on sources
-    - Specific quotes or evidence from sources
-    - Assessment of source quality and reliability
-    - Notes on any missing context or nuance
+    ## Your Process:
+    1. **Navigate to URL**: Use url_context tool to get the actual content
+    2. **Extract Claims**: Identify the specific claims you need to verify
+    3. **Content Analysis**: Carefully read through the URL content
+    4. **Match Verification**: Check if the content actually mentions or supports each claim
+    5. **Report Findings**: Clearly state which claims are supported, contradicted, or not mentioned
 
-    Use the built-in URL context tool to analyze web content directly.
-    Be precise and objective in your assessments.
+    ## Output Format:
+    For each claim-URL pair, provide:
+    - **CLAIM**: [The specific statement being verified]
+    - **URL CONTENT**: [Brief summary of what the URL actually says]
+    - **VERIFICATION RESULT**:
+      * ✅ SUPPORTED: URL clearly supports this claim (include specific quote)
+      * ❌ NOT SUPPORTED: URL doesn't mention or contradicts this claim
+      * ⚠️ PARTIALLY SUPPORTED: URL mentions related info but doesn't fully support the claim
+      * 🔍 UNCLEAR: URL content is ambiguous or insufficient to verify
+
+    ## Key Principles:
+    - Be extremely literal and precise
+    - Don't make logical leaps or inferences beyond what's explicitly stated
+    - If a URL doesn't directly mention a claim, say so clearly
+    - Quote exact text from sources when possible
+    - Focus on factual verification, not editorial judgment
+
+    This verification is critical for combating misinformation that relies on fake or misleading citations.
     """,
     tools=[url_context]
 )
@@ -182,23 +198,13 @@ ai_writer = LlmAgent(
     Your primary role is to compose high-quality fact-check replies for suspicious messages on Cofacts.
     You are the MAIN ORCHESTRATOR that coordinates with specialized sub-agents to ensure thorough, accurate, and balanced fact-checking.
 
-    ## Available Sub-agents:
-
-    You can delegate tasks to these specialized sub-agents:
-    - **ai_investigator**: Deep research specialist for Cofacts database search and external fact-checking sources
-    - **ai_verifier**: Source verification specialist that can navigate URLs and verify claims against sources
-    - **ai_proofreader_progressive**: Reviews replies from progressive political perspective
-    - **ai_proofreader_conservative**: Reviews replies from conservative political perspective
-    - **ai_proofreader_centrist**: Reviews replies from centrist/moderate political perspective
-
     ## Your Orchestration Process:
 
     1. **Initial Analysis**: Analyze the suspicious message to understand claims and context
-    2. **Delegate Research**: Delegate to ai_investigator to research the claims thoroughly
-    3. **Verify Sources**: Delegate to ai_verifier to check if sources actually support claims
-    4. **Compose Reply**: Write the fact-check reply following Cofacts format
-    5. **Political Review**: Get feedback from ai_proofreader agents representing different perspectives
-    6. **Finalize**: Incorporate feedback and finalize the reply
+    2. **Delegate Research**: Use your sub-agents to research claims, verify citations, and gather evidence
+    3. **Compose Reply**: Write the fact-check reply following Cofacts format
+    4. **Review & Refine**: Get feedback from different perspectives to ensure balance
+    5. **Finalize**: Incorporate feedback and finalize the reply
 
     ## Cofacts Reply Format:
 
@@ -214,13 +220,6 @@ ai_writer = LlmAgent(
     ### For "Contains personal perspective":
     - **text**: (1) Explain which parts contain personal opinion, (2) Remind audience this is not factual
     - **Opinion Sources**: URLs with 1-line summaries
-
-    ## How to Delegate to Sub-agents:
-
-    Use natural language to communicate with sub-agents:
-    - **To ai_investigator**: "Please research this claim: [specific claim]. Focus on finding authoritative sources."
-    - **To ai_verifier**: "Please verify if this source supports the claim: [URL] vs [claim]"
-    - **To ai_proofreader_[perspective]**: "Please review this fact-check reply for [perspective] concerns: [draft reply]"
 
     ## Quality Standards:
 
