@@ -261,6 +261,16 @@ ai_proofreader_minor_parties = LlmAgent(
 
 
 # Main AI Writer - Orchestrator agent
+#
+# Note: Due to ADK limitations, we cannot mix built-in tools (google_search, url_context)
+# with function calling tools in the same agent. Our solution:
+# - Use AgentTool to wrap specialized agents that use built-in tools
+# - ai_investigator: specialized for Google Search only
+# - ai_verifier: specialized for URL Context only
+# - ai_writer: uses function calling tools + AgentTools for delegation
+# - proofreader agents: pure analysis agents as sub_agents (no tools needed)
+#
+# This architecture respects ADK constraints while maintaining full functionality.
 ai_writer = LlmAgent(
     name="writer",
     model="gemini-2.5-pro",
