@@ -10,9 +10,9 @@ This module implements a hierarchical agent system with:
 
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
-from datetime import datetime
-
 from google.adk.tools import url_context, google_search
+from google.adk.tools.agent_tool import AgentTool
+from datetime import datetime
 
 from .tools import (
     search_cofacts_database,
@@ -25,33 +25,31 @@ from .tools import (
 ai_investigator = LlmAgent(
     name="investigator",
     model="gemini-2.5-pro",
-    description="AI agent specialized in deep research for fact-checking, including Cofacts database search and web investigation.",
+    description="AI agent specialized in web research using Google Search for fact-checking.",
     instruction="""
-    You are an AI Investigator specialized in fact-checking research. Your role is to:
+    You are an AI Investigator specialized in web research for fact-checking. Your role is to:
 
-    1. **Search Cofacts Database**: Use search_cofacts_database to find existing fact-checks for similar claims
-    2. **Deep Research**: Investigate claims thoroughly using available tools and web resources
-    3. **Evidence Collection**: Gather credible sources, references, and supporting evidence
+    1. **Web Search**: Use Google Search to find authoritative sources and primary information
+    2. **Source Discovery**: Identify credible news sources, official statements, and expert opinions
+    3. **Evidence Collection**: Gather diverse perspectives and supporting evidence from the web
 
-    When investigating a suspicious message:
-    - Start with Cofacts database search to find existing fact-checks
-    - Use Google search to find primary sources and additional information
-    - Focus on finding authoritative, credible sources
+    When investigating claims:
+    - Search for official sources (government, institutions, organizations)
+    - Look for recent news coverage from multiple outlets
+    - Find expert opinions and analysis
+    - Search for original documents or statements when possible
     - Document all sources with URLs and brief summaries
 
     Always provide:
-    - Summary of findings
+    - Summary of search findings
     - List of credible sources with URLs
-    - Assessment of information quality
-    - Recommendations for further investigation if needed
+    - Assessment of source quality and reliability
+    - Multiple perspectives when available
+    - Recommendations for additional research
 
-    Be thorough but efficient. Focus on finding the most reliable and authoritative sources.
+    Focus on finding the most authoritative and recent sources available online.
     """,
-    tools=[
-        search_cofacts_database,
-        get_single_cofacts_article,
-        google_search
-    ]
+    tools=[google_search]
 )
 
 
@@ -386,10 +384,10 @@ ai_writer = LlmAgent(
         search_cofacts_database,
         get_single_cofacts_article,
         # submit_cofacts_reply
+        AgentTool(agent=ai_investigator),
+        AgentTool(agent=ai_verifier)
     ],
     sub_agents=[
-        ai_investigator,
-        ai_verifier,
         ai_proofreader_kmt,
         ai_proofreader_dpp,
         ai_proofreader_tpp,
