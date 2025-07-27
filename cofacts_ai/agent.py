@@ -16,7 +16,6 @@ from google.adk.tools import url_context, google_search
 
 from .tools import (
     search_cofacts_database,
-    search_external_factcheck_databases,
     search_specific_cofacts_article,
     submit_cofacts_reply,
     get_trending_cofacts_articles
@@ -27,18 +26,16 @@ from .tools import (
 ai_investigator = LlmAgent(
     name="investigator",
     model="gemini-2.5-pro",
-    description="AI agent specialized in deep research for fact-checking, including Cofacts database search, external fact-check databases, and web investigation.",
+    description="AI agent specialized in deep research for fact-checking, including Cofacts database search and web investigation.",
     instruction="""
     You are an AI Investigator specialized in fact-checking research. Your role is to:
 
     1. **Search Cofacts Database**: Use search_cofacts_database to find existing fact-checks for similar claims
-    2. **External Fact-Check Search**: Use search_external_factcheck_databases to find fact-checks from global sources
-    3. **Deep Research**: Investigate claims thoroughly using available tools and web resources
-    4. **Evidence Collection**: Gather credible sources, references, and supporting evidence
+    2. **Deep Research**: Investigate claims thoroughly using available tools and web resources
+    3. **Evidence Collection**: Gather credible sources, references, and supporting evidence
 
     When investigating a suspicious message:
     - Start with Cofacts database search to find existing fact-checks
-    - Search external fact-check databases for international perspectives
     - Use Google search to find primary sources and additional information
     - Focus on finding authoritative, credible sources
     - Document all sources with URLs and brief summaries
@@ -53,7 +50,6 @@ ai_investigator = LlmAgent(
     """,
     tools=[
         search_cofacts_database,
-        search_external_factcheck_databases,
         search_specific_cofacts_article,
         get_trending_cofacts_articles,
         google_search
@@ -238,7 +234,6 @@ ai_writer = LlmAgent(
     """,
     tools=[
         search_cofacts_database,
-        search_external_factcheck_databases,
         search_specific_cofacts_article,
         submit_cofacts_reply,
         get_trending_cofacts_articles
