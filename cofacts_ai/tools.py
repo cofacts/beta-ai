@@ -1,5 +1,9 @@
 """
 Fact-checking tools for Cofacts AI agents to verify suspicious messages and claims.
+
+Articles in Cofacts represent suspicious messages reported by users through LINE.
+Each Article may have multiple ArticleReplies (fact-check responses from collaborators)
+and ReplyRequests (additional context provided by reporters or collaborators).
 """
 
 import json
@@ -7,52 +11,118 @@ import asyncio
 from typing import Dict, List, Any, Optional
 import httpx
 
-from google.adk.tools.tool_context import ToolContext
-
 
 async def search_cofacts_database(
-    query: str,
-    tool_context: ToolContext,
-    limit: int = 10
+    query: Optional[str] = None,
+    article_ids: Optional[List[str]] = None,
+    limit: int = 10,
+    after: Optional[str] = None,
+    has_article_reply_with_more_positive_feedback: Optional[bool] = None,
+    reply_count_max: Optional[int] = None,
+    days_back: Optional[int] = None,
+    order_by: str = "_score"
 ) -> Dict[str, Any]:
     """
-    Search the Cofacts database for existing fact-checks using GraphQL API.
+    Search the Cofacts database for articles using various filters.
+
+    This unified function can:
+    - Search by text similarity (query parameter)
+    - Get specific articles by IDs (article_ids parameter)
+    - Find trending articles needing fact-checks (reply_count_max + days_back)
+    - Apply various filters and sorting options
+
+    Cofacts Articles represent suspicious messages reported by LINE users. Key information includes:
+    - articleType: Whether the message is TEXT, IMAGE, VIDEO, or AUDIO
+    - text: For text messages, this is the content. For media, this is OCR/transcript result
+    - attachmentUrl: Preview of media content (when articleType is not TEXT)
+    - articleReplies: Fact-check responses from collaborators with feedback scores
+    - replyRequests: Additional context from reporters with community ratings
+    - hyperlinks: URLs found in the message with crawled metadata
+    - cooccurrences: Messages reported together, indicating they were shared as a set
+    - relatedArticles: Similar messages that may have existing fact-checks
 
     Args:
-        query: The suspicious message or claim to search for
-        tool_context: Tool context for the agent
-        limit: Maximum number of results to return
+        query: The suspicious message or claim to search for (for similarity search)
+        article_ids: List of specific article IDs to retrieve (alternative to query)
+        limit: Maximum number of results to return (default: 10)
+        after: Cursor for pagination - returns results after this cursor
+        has_article_reply_with_more_positive_feedback: Filter for articles with well-received replies
+        reply_count_max: Maximum number of replies (useful for finding articles that need more fact-checks)
+        days_back: Only include articles created within this many days (useful for trending articles)
+        order_by: Sort order - "_score" (relevance), "replyRequestCount" (trending), "createdAt"
 
     Returns:
-        Search results from Cofacts database
+        Search results from Cofacts database with pagination info
     """
     try:
-        graphql_query = """
-        query ListArticles($moreLikeThis: MoreLikeThisInput!, $first: Int!) {
-          ListArticles(
-            filter: {
-              moreLikeThis: $moreLikeThis
-              hasArticleReplyWithMorePositiveFeedback: true
+        # Build filter object based on parameters
+        filter_obj = {}
+
+        if query:
+            filter_obj["moreLikeThis"] = {
+                "like": query,
+                "minimumShouldMatch": "0"
             }
-            orderBy: [{ _score: DESC }]
+
+        if article_ids:
+            filter_obj["ids"] = article_ids
+
+        if has_article_reply_with_more_positive_feedback is not None:
+            filter_obj["hasArticleReplyWithMorePositiveFeedback"] = has_article_reply_with_more_positive_feedback
+
+        if reply_count_max is not None:
+            filter_obj["replyCount"] = {"LT": reply_count_max}
+
+        if days_back is not None:
+            from datetime import datetime, timedelta
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days_back)
+            filter_obj["createdAt"] = {
+                "GTE": start_date.isoformat(),
+                "LTE": end_date.isoformat()
+            }
+
+        # Build orderBy based on order_by parameter
+        if order_by == "replyRequestCount":
+            order_by_obj = [{"replyRequestCount": "DESC"}, {"createdAt": "DESC"}]
+        elif order_by == "createdAt":
+            order_by_obj = [{"createdAt": "DESC"}]
+        else:  # default to _score
+            order_by_obj = [{"_score": "DESC"}]
+
+        graphql_query = """
+        query ListArticles($filter: ListArticleFilter!, $orderBy: [ListArticleOrderBy!]!, $first: Int!, $after: String) {
+          ListArticles(
+            filter: $filter
+            orderBy: $orderBy
             first: $first
+            after: $after
           ) {
             totalCount
+            pageInfo {
+              firstCursor
+              lastCursor
+            }
             edges {
               node {
                 id
                 text
                 createdAt
-                updatedAt
-                replyCount
                 articleType
-                attachmentUrl
+                attachmentUrl(variant: PREVIEW)
+                replyCount
+                replyRequestCount
                 articleReplies(statuses: [NORMAL]) {
+                  id
                   reply {
                     id
                     type
                     text
                     createdAt
+                    reference
+                    user {
+                      name
+                    }
                   }
                   user {
                     name
@@ -60,33 +130,61 @@ async def search_cofacts_database(
                   createdAt
                   positiveFeedbackCount
                   negativeFeedbackCount
-                }
-                articleCategories(statuses: [NORMAL]) {
-                  category {
-                    title
-                    description
+                  feedbacks(statuses: [NORMAL]) {
+                    vote
+                    comment
+                    createdAt
+                    user {
+                      name
+                    }
                   }
+                }
+                replyRequests(statuses: [NORMAL]) {
+                  user {
+                    name
+                  }
+                  reason
+                  createdAt
                   positiveFeedbackCount
                   negativeFeedbackCount
                 }
                 hyperlinks {
                   url
+                  normalizedUrl
                   title
                   summary
+                  topImageUrl
+                  status
+                  error
+                }
+                cooccurrences {
+                  articleIds
+                  createdAt
+                }
+                relatedArticles(first: 5) {
+                  edges {
+                    node {
+                      id
+                      text
+                      articleType
+                      replyCount
+                    }
+                    score
+                  }
                 }
               }
               score
+              cursor
             }
           }
         }
         """
 
         variables = {
-            "moreLikeThis": {
-                "like": query,
-                "minimumShouldMatch": "0"
-            },
-            "first": limit
+            "filter": filter_obj,
+            "orderBy": order_by_obj,
+            "first": limit,
+            "after": after
         }
 
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -111,31 +209,41 @@ async def search_cofacts_database(
                 }
 
             return {
-                "query": query,
+                "search_params": {
+                    "query": query,
+                    "variables": variables,
+                    "article_ids": article_ids,
+                    "order_by": order_by,
+                    "reply_count_max": reply_count_max,
+                    "days_back": days_back
+                },
                 "total_count": result["data"]["ListArticles"]["totalCount"],
                 "articles": [edge["node"] for edge in result["data"]["ListArticles"]["edges"]],
-                "scores": [edge["score"] for edge in result["data"]["ListArticles"]["edges"]]
+                "scores": [edge["score"] for edge in result["data"]["ListArticles"]["edges"]],
+                "page_info": result["data"]["ListArticles"]["pageInfo"],
+                "cursors": [edge["cursor"] for edge in result["data"]["ListArticles"]["edges"]]
             }
 
     except Exception as e:
         return {
             "error": f"Failed to search Cofacts database: {str(e)}",
-            "query": query
+            "search_params": {"query": query, "article_ids": article_ids}
         }
 
 
 async def search_external_factcheck_databases(
     query: str,
-    tool_context: ToolContext,
     language_code: str = "zh-TW",
     limit: int = 10
 ) -> Dict[str, Any]:
     """
     Search external fact-checking databases using Google Fact Check Tools API.
 
+    Note: This requires a Google Cloud API key with Fact Check Tools API enabled.
+    Currently returns a placeholder response as authentication is not implemented.
+
     Args:
         query: The claim to fact-check
-        tool_context: Tool context for the agent
         language_code: Language code for the search (e.g., "zh-TW", "en")
         limit: Maximum number of results to return
 
@@ -143,33 +251,39 @@ async def search_external_factcheck_databases(
         Fact-check results from Google Fact Check Tools API
     """
     try:
-        # Note: You'll need to get an API key from Google Cloud Console
-        # and enable the Fact Check Tools API
-        api_key = "YOUR_GOOGLE_FACTCHECK_API_KEY"  # Replace with actual API key
-
-        params = {
+        # Note: Authentication not implemented yet
+        # Would need actual Google Cloud API key here
+        return {
+            "message": "Google Fact Check Tools API requires authentication setup",
             "query": query,
-            "languageCode": language_code,
-            "pageSize": limit,
-            "key": api_key
+            "language_code": language_code,
+            "limit": limit,
+            "note": "Use search_cofacts_database for available fact-checks in Traditional Chinese"
         }
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(
-                "https://factchecktools.googleapis.com/v1alpha1/claims:search",
-                params=params
-            )
-            response.raise_for_status()
-
-            result = response.json()
-
-            return {
-                "query": query,
-                "language_code": language_code,
-                "claims": result.get("claims", []),
-                "next_page_token": result.get("nextPageToken"),
-                "total_results": len(result.get("claims", []))
-            }
+        # Placeholder for future implementation:
+        # api_key = "YOUR_GOOGLE_FACTCHECK_API_KEY"
+        # params = {
+        #     "query": query,
+        #     "languageCode": language_code,
+        #     "pageSize": limit,
+        #     "key": api_key
+        # }
+        #
+        # async with httpx.AsyncClient(timeout=30.0) as client:
+        #     response = await client.get(
+        #         "https://factchecktools.googleapis.com/v1alpha1/claims:search",
+        #         params=params
+        #     )
+        #     response.raise_for_status()
+        #     result = response.json()
+        #     return {
+        #         "query": query,
+        #         "language_code": language_code,
+        #         "claims": result.get("claims", []),
+        #         "next_page_token": result.get("nextPageToken"),
+        #         "total_results": len(result.get("claims", []))
+        #     }
 
     except Exception as e:
         return {
@@ -180,37 +294,44 @@ async def search_external_factcheck_databases(
 
 
 async def search_specific_cofacts_article(
-    article_id: str,
-    tool_context: ToolContext
+    article_id: str
 ) -> Dict[str, Any]:
     """
     Get a specific article from Cofacts database by ID.
 
+    Returns detailed information about a Cofacts article including:
+    - Full text content or OCR/transcript for media
+    - All fact-check responses (articleReplies) with community feedback
+    - Additional context from reporters (replyRequests) with ratings
+    - Related articles that might have existing fact-checks
+    - Cooccurrences showing messages shared together
+    - URL metadata for any links in the message
+
+    The article ID can be used to construct Cofacts URLs: https://cofacts.tw/article/{article_id}
+
     Args:
         article_id: The Cofacts article ID to retrieve
-        tool_context: Tool context for the agent
 
     Returns:
         Detailed article information from Cofacts
     """
     try:
         graphql_query = """
-        query GetArticle($id: ID!) {
+        query GetArticle($id: String!) {
           GetArticle(id: $id) {
             id
             text
             createdAt
-            updatedAt
-            replyCount
             articleType
-            attachmentUrl
+            attachmentUrl(variant: PREVIEW)
             attachmentHash
-            transcribedAt
+            replyCount
+            replyRequestCount
             contributors {
               user {
                 name
               }
-              contributedAt
+              updatedAt
             }
             user {
               name
@@ -226,34 +347,30 @@ async def search_specific_cofacts_article(
                 user {
                   name
                 }
+                hyperlinks {
+                  url
+                  normalizedUrl
+                  title
+                  summary
+                  topImageUrl
+                  status
+                  error
+                }
               }
               user {
                 name
               }
               createdAt
-              updatedAt
               positiveFeedbackCount
               negativeFeedbackCount
-            }
-            articleCategories(statuses: [NORMAL]) {
-              id
-              category {
-                id
-                title
-                description
+              feedbacks(statuses: [NORMAL]) {
+                vote
+                comment
+                createdAt
+                user {
+                  name
+                }
               }
-              user {
-                name
-              }
-              positiveFeedbackCount
-              negativeFeedbackCount
-              createdAt
-            }
-            hyperlinks {
-              url
-              title
-              summary
-              topImageUrl
             }
             replyRequests(statuses: [NORMAL]) {
               user {
@@ -261,6 +378,59 @@ async def search_specific_cofacts_article(
               }
               reason
               createdAt
+              positiveFeedbackCount
+              negativeFeedbackCount
+            }
+            hyperlinks {
+              url
+              normalizedUrl
+              title
+              summary
+              topImageUrl
+              status
+              error
+            }
+            cooccurrences {
+              id
+              articleIds
+              createdAt
+              articles {
+                id
+                text
+                articleType
+                attachmentUrl(variant: PREVIEW)
+              }
+            }
+            relatedArticles(first: 10) {
+              totalCount
+              edges {
+                node {
+                  id
+                  text
+                  articleType
+                  replyCount
+                  createdAt
+                  articleReplies(statuses: [NORMAL]) {
+                    reply {
+                      id
+                      type
+                      text
+                    }
+                    positiveFeedbackCount
+                    negativeFeedbackCount
+                  }
+                }
+                score
+              }
+            }
+            stats(dateRange: { GTE: "now-90d/d" }) {
+              date
+              lineUser
+              lineVisit
+              webUser
+              webVisit
+              liffUser
+              liffVisit
             }
           }
         }
@@ -312,18 +482,19 @@ async def submit_cofacts_reply(
     article_id: str,
     reply_type: str,
     text: str,
-    reference: str,
-    tool_context: ToolContext
+    reference: str
 ) -> Dict[str, Any]:
     """
     Submit a fact-check reply to Cofacts (requires authentication).
+
+    Note: This requires authentication with Cofacts API which is not yet implemented.
+    Currently returns a placeholder response.
 
     Args:
         article_id: The Cofacts article ID to reply to
         reply_type: Type of reply ("RUMOR", "NOT_RUMOR", "OPINIONATED", "NOT_ARTICLE")
         text: The fact-check response text
         reference: URLs and summaries as references
-        tool_context: Tool context for the agent
 
     Returns:
         Result of the submission
@@ -366,106 +537,6 @@ async def submit_cofacts_reply(
         }
 
 
-async def get_trending_cofacts_articles(
-    tool_context: ToolContext,
-    days: int = 7,
-    limit: int = 10
-) -> Dict[str, Any]:
-    """
-    Get trending articles from Cofacts that need fact-checking.
-
-    Args:
-        tool_context: Tool context for the agent
-        days: Number of days to look back for trending articles
-        limit: Maximum number of results to return
-
-    Returns:
-        List of trending articles that need replies
-    """
-    try:
-        from datetime import datetime, timedelta
-
-        # Calculate date range
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days)
-
-        graphql_query = """
-        query ListTrendingArticles($createdAt: TimeRangeInput!, $first: Int!) {
-          ListArticles(
-            filter: {
-              createdAt: $createdAt
-              replyCount: { LT: 3 }
-              hasArticleReplyWithMorePositiveFeedback: false
-            }
-            orderBy: [{ replyRequestCount: DESC }, { createdAt: DESC }]
-            first: $first
-          ) {
-            totalCount
-            edges {
-              node {
-                id
-                text
-                createdAt
-                replyRequestCount
-                replyCount
-                articleType
-                attachmentUrl
-                replyRequests(statuses: [NORMAL]) {
-                  reason
-                  createdAt
-                  user {
-                    name
-                  }
-                }
-                user {
-                  name
-                }
-              }
-            }
-          }
-        }
-        """
-
-        variables = {
-            "createdAt": {
-                "GTE": start_date.isoformat(),
-                "LTE": end_date.isoformat()
-            },
-            "first": limit
-        }
-
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                "https://api.cofacts.tw/graphql",
-                json={
-                    "query": graphql_query,
-                    "variables": variables
-                },
-                headers={
-                    "Content-Type": "application/json"
-                }
-            )
-            response.raise_for_status()
-
-            result = response.json()
-
-            if "errors" in result:
-                return {
-                    "error": f"GraphQL errors: {result['errors']}",
-                    "days": days
-                }
-
-            return {
-                "days": days,
-                "total_count": result["data"]["ListArticles"]["totalCount"],
-                "trending_articles": [edge["node"] for edge in result["data"]["ListArticles"]["edges"]]
-            }
-
-    except Exception as e:
-        return {
-            "error": f"Failed to get trending Cofacts articles: {str(e)}",
-            "days": days
-        }
 
 
 

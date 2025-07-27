@@ -17,8 +17,7 @@ from google.adk.tools import url_context, google_search
 from .tools import (
     search_cofacts_database,
     search_specific_cofacts_article,
-    submit_cofacts_reply,
-    get_trending_cofacts_articles
+    submit_cofacts_reply
 )
 
 
@@ -51,7 +50,6 @@ ai_investigator = LlmAgent(
     tools=[
         search_cofacts_database,
         search_specific_cofacts_article,
-        get_trending_cofacts_articles,
         google_search
     ]
 )
@@ -387,8 +385,7 @@ ai_writer = LlmAgent(
     tools=[
         search_cofacts_database,
         search_specific_cofacts_article,
-        submit_cofacts_reply,
-        get_trending_cofacts_articles
+        # submit_cofacts_reply
     ],
     sub_agents=[
         ai_investigator,
