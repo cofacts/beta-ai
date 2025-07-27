@@ -33,7 +33,7 @@ Usage:
 
 from .agent import ai_writer
 
-# Export ai_writer as 'agent' to maintain consistency with other agents
-agent = ai_writer
+# Export ai_writer as 'root_agent' for ADK to discover
+root_agent = ai_writer
 
-__all__ = ["agent"]
+__all__ = ["root_agent"]
