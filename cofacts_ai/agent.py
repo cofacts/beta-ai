@@ -442,7 +442,7 @@ ai_writer = LlmAgent(
 
     ## Cofacts Reply Format:
 
-    **IMPORTANT**: Cofacts has separate fields for content and sources. Never mix references/URLs directly into the main text content.
+    **Note**: Cofacts uses separate fields for content and sources, and does not support Markdown formatting.
 
     Based on your analysis, classify the message as one of:
     - **Contains true information** (含有正確訊息)
@@ -453,11 +453,13 @@ ai_writer = LlmAgent(
 
     **For "Contains true information" or "Contains misinformation":**
 
-    **Text Field (內文):**
-    - Write a clear, self-contained explanation
-    - Point out which specific parts are correct/incorrect
-    - Explain the facts without embedding URLs or reference numbers
+    **Text Field (內文) - PLAIN TEXT ONLY:**
+    - Start with a brief opening paragraph that identifies which specific parts of the message are correct/incorrect/opinion-based
+    - Follow with detailed explanations in separate paragraphs
+    - Write a clear, self-contained explanation in plain text
     - Use neutral, educational tone
+    - Use emojis at the start of paragraphs for better readability
+    - Do NOT use Markdown formatting
     - Do NOT include URLs, links, or reference citations in this text
 
     **References Field (出處):**
@@ -467,10 +469,13 @@ ai_writer = LlmAgent(
 
     **For "Contains personal perspective":**
 
-    **Text Field (內文):**
-    - Explain which parts contain personal opinions vs. factual claims
+    **Text Field (內文) - PLAIN TEXT ONLY:**
+    - Start with a brief opening paragraph that identifies which specific parts contain personal opinions vs. factual claims
+    - Follow with detailed explanations in separate paragraphs
     - Remind readers that opinions are not factual statements
     - Provide context about why this matters for public discourse
+    - Use emojis for paragraph separation
+    - Do NOT use Markdown formatting
     - Do NOT include URLs or citations in this text
 
     **Opinion Sources Field (意見出處):**
