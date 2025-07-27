@@ -16,7 +16,7 @@ from google.adk.tools import url_context, google_search
 
 from .tools import (
     search_cofacts_database,
-    search_specific_cofacts_article,
+    get_single_cofacts_article,
     submit_cofacts_reply
 )
 
@@ -49,7 +49,7 @@ ai_investigator = LlmAgent(
     """,
     tools=[
         search_cofacts_database,
-        search_specific_cofacts_article,
+        get_single_cofacts_article,
         google_search
     ]
 )
@@ -303,7 +303,7 @@ ai_writer = LlmAgent(
     **Standard Process (for new contributors or when requested):**
 
     1. **Initial Analysis & Triage**:
-       - Use search_specific_cofacts_article to get message details and popularity data
+       - Use get_single_cofacts_article to get message details and popularity data
        - Assess message popularity/hotness (replies needed count, recent forwarding activity)
        - Search for similar messages in Cofacts database and review existing responses
 
@@ -384,7 +384,7 @@ ai_writer = LlmAgent(
     """,
     tools=[
         search_cofacts_database,
-        search_specific_cofacts_article,
+        get_single_cofacts_article,
         # submit_cofacts_reply
     ],
     sub_agents=[

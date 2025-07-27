@@ -12,12 +12,179 @@ from typing import Dict, List, Any, Optional
 import httpx
 
 
+# GraphQL fragment for common Article fields
+COMMON_ARTICLE_FIELDS = """
+  fragment CommonArticleFields on Article {
+    id
+    text
+    createdAt
+    articleType
+    attachmentUrl(variant: PREVIEW)
+    replyCount
+    replyRequestCount
+    hyperlinks {
+      url
+      title
+      summary
+      status
+      error
+    }
+    articleReplies(statuses: [NORMAL]) {
+      id
+      reply {
+        id
+        type
+        text
+        createdAt
+        reference
+        user {
+          name
+        }
+        hyperlinks {
+          url
+          normalizedUrl
+          title
+          summary
+          topImageUrl
+          status
+          error
+        }
+      }
+      user {
+        name
+      }
+      createdAt
+      positiveFeedbackCount
+      negativeFeedbackCount
+      feedbacks(statuses: [NORMAL]) {
+        vote
+        comment
+        createdAt
+        user {
+          name
+        }
+      }
+    }
+    replyRequests(statuses: [NORMAL]) {
+      user {
+        name
+      }
+      reason
+      createdAt
+      positiveFeedbackCount
+      negativeFeedbackCount
+    }
+    cooccurrences {
+      id
+      articleIds
+      createdAt
+      articles {
+        id
+        text
+        articleType
+        attachmentUrl(variant: PREVIEW)
+      }
+    }
+    relatedArticles(first: 10) {
+      totalCount
+      edges {
+        node {
+          id
+          text
+          articleType
+          replyCount
+          createdAt
+          articleReplies(statuses: [NORMAL]) {
+            reply {
+              id
+              type
+              text
+            }
+            positiveFeedbackCount
+            negativeFeedbackCount
+          }
+        }
+        score
+      }
+    }
+    stats(dateRange: { GTE: "now-90d/d" }) {
+      date
+      lineUser
+      lineVisit
+      webUser
+      webVisit
+      liffUser
+      liffVisit
+    }
+  }
+"""
+
+
+async def _execute_cofacts_graphql(
+    query: str,
+    variables: Dict[str, Any],
+    operation_name: str = "GraphQL request"
+) -> Dict[str, Any]:
+    """
+    Execute a GraphQL query against Cofacts API with standardized error handling.
+
+    Args:
+        query: The GraphQL query string
+        variables: Variables for the GraphQL query
+        operation_name: Name of the operation for error reporting
+
+    Returns:
+        Response containing either data or error information
+    """
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                "https://api.cofacts.tw/graphql",
+                json={
+                    "query": query,
+                    "variables": variables
+                },
+                headers={
+                    "Content-Type": "application/json"
+                }
+            )
+            response.raise_for_status()
+
+            result = response.json()
+
+            if "errors" in result:
+                return {
+                    "error": f"GraphQL errors: {result['errors']}",
+                    "graphql_request": {
+                        "query": query,
+                        "variables": variables
+                    }
+                }
+
+            return {
+                "success": True,
+                "data": result["data"],
+                "graphql_request": {
+                    "query": query,
+                    "variables": variables
+                }
+            }
+
+    except Exception as e:
+        return {
+            "error": f"Failed to execute {operation_name}: {str(e)}",
+            "graphql_request": {
+                "query": query,
+                "variables": variables
+            }
+        }
+
+
 async def search_cofacts_database(
     query: Optional[str] = None,
     article_ids: Optional[List[str]] = None,
     limit: int = 10,
     after: Optional[str] = None,
-    has_article_reply_with_more_positive_feedback: Optional[bool] = None,
     reply_count_max: Optional[int] = None,
     days_back: Optional[int] = None,
     order_by: str = "_score"
@@ -37,19 +204,24 @@ async def search_cofacts_database(
     - attachmentUrl: Preview of media content (when articleType is not TEXT)
     - articleReplies: Fact-check responses from collaborators with feedback scores
     - replyRequests: Additional context from reporters with community ratings
+    - replyRequestCount: Number of people who wanted to know the truth before fact-checks were available
     - hyperlinks: URLs found in the message with crawled metadata
     - cooccurrences: Messages reported together, indicating they were shared as a set
     - relatedArticles: Similar messages that may have existing fact-checks
+    - stats: Actual traffic/popularity data (views, visits) - use this for current hotness metrics
 
     Args:
         query: The suspicious message or claim to search for (for similarity search)
         article_ids: List of specific article IDs to retrieve (alternative to query)
         limit: Maximum number of results to return (default: 10)
         after: Cursor for pagination - returns results after this cursor
-        has_article_reply_with_more_positive_feedback: Filter for articles with well-received replies
         reply_count_max: Maximum number of replies (useful for finding articles that need more fact-checks)
         days_back: Only include articles created within this many days (useful for trending articles)
-        order_by: Sort order - "_score" (relevance), "replyRequestCount" (trending), "createdAt"
+        order_by: Sort order - "_score" (relevance), "replyRequestCount" (demand for fact-checks), "createdAt"
+
+    Note about metrics:
+    - replyRequestCount: Reflects community demand - how many people wanted to know the truth before fact-checks were available
+    - stats field: Provides actual traffic/popularity data (views, visits) for current hotness metrics
 
     Returns:
         Search results from Cofacts database with pagination info
@@ -66,9 +238,6 @@ async def search_cofacts_database(
 
         if article_ids:
             filter_obj["ids"] = article_ids
-
-        if has_article_reply_with_more_positive_feedback is not None:
-            filter_obj["hasArticleReplyWithMorePositiveFeedback"] = has_article_reply_with_more_positive_feedback
 
         if reply_count_max is not None:
             filter_obj["replyCount"] = {"LT": reply_count_max}
@@ -90,94 +259,30 @@ async def search_cofacts_database(
         else:  # default to _score
             order_by_obj = [{"_score": "DESC"}]
 
-        graphql_query = """
-        query ListArticles($filter: ListArticleFilter!, $orderBy: [ListArticleOrderBy!]!, $first: Int!, $after: String) {
+        graphql_query = f"""
+        {COMMON_ARTICLE_FIELDS}
+
+        query ListArticles($filter: ListArticleFilter!, $orderBy: [ListArticleOrderBy!]!, $first: Int!, $after: String) {{
           ListArticles(
             filter: $filter
             orderBy: $orderBy
             first: $first
             after: $after
-          ) {
+          ) {{
             totalCount
-            pageInfo {
+            pageInfo {{
               firstCursor
               lastCursor
-            }
-            edges {
-              node {
-                id
-                text
-                createdAt
-                articleType
-                attachmentUrl(variant: PREVIEW)
-                replyCount
-                replyRequestCount
-                articleReplies(statuses: [NORMAL]) {
-                  id
-                  reply {
-                    id
-                    type
-                    text
-                    createdAt
-                    reference
-                    user {
-                      name
-                    }
-                  }
-                  user {
-                    name
-                  }
-                  createdAt
-                  positiveFeedbackCount
-                  negativeFeedbackCount
-                  feedbacks(statuses: [NORMAL]) {
-                    vote
-                    comment
-                    createdAt
-                    user {
-                      name
-                    }
-                  }
-                }
-                replyRequests(statuses: [NORMAL]) {
-                  user {
-                    name
-                  }
-                  reason
-                  createdAt
-                  positiveFeedbackCount
-                  negativeFeedbackCount
-                }
-                hyperlinks {
-                  url
-                  normalizedUrl
-                  title
-                  summary
-                  topImageUrl
-                  status
-                  error
-                }
-                cooccurrences {
-                  articleIds
-                  createdAt
-                }
-                relatedArticles(first: 5) {
-                  edges {
-                    node {
-                      id
-                      text
-                      articleType
-                      replyCount
-                    }
-                    score
-                  }
-                }
-              }
+            }}
+            edges {{
+              node {{
+                ...CommonArticleFields
+              }}
               score
               cursor
-            }
-          }
-        }
+            }}
+          }}
+        }}
         """
 
         variables = {
@@ -187,47 +292,28 @@ async def search_cofacts_database(
             "after": after
         }
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                "https://api.cofacts.tw/graphql",
-                json={
-                    "query": graphql_query,
-                    "variables": variables
-                },
-                headers={
-                    "Content-Type": "application/json"
-                }
-            )
-            response.raise_for_status()
+        result = await _execute_cofacts_graphql(
+            query=graphql_query,
+            variables=variables,
+            operation_name="search Cofacts database"
+        )
 
-            result = response.json()
+        if "error" in result:
+            return result
 
-            if "errors" in result:
-                return {
-                    "error": f"GraphQL errors: {result['errors']}",
-                    "query": query
-                }
-
-            return {
-                "search_params": {
-                    "query": query,
-                    "variables": variables,
-                    "article_ids": article_ids,
-                    "order_by": order_by,
-                    "reply_count_max": reply_count_max,
-                    "days_back": days_back
-                },
-                "total_count": result["data"]["ListArticles"]["totalCount"],
-                "articles": [edge["node"] for edge in result["data"]["ListArticles"]["edges"]],
-                "scores": [edge["score"] for edge in result["data"]["ListArticles"]["edges"]],
-                "page_info": result["data"]["ListArticles"]["pageInfo"],
-                "cursors": [edge["cursor"] for edge in result["data"]["ListArticles"]["edges"]]
-            }
+        # Extract ListArticles data from the successful response
+        return {
+            "graphql_request": result["graphql_request"],
+            "data": result["data"]["ListArticles"]
+        }
 
     except Exception as e:
         return {
             "error": f"Failed to search Cofacts database: {str(e)}",
-            "search_params": {"query": query, "article_ids": article_ids}
+            "graphql_request": {
+                "query": graphql_query if 'graphql_query' in locals() else None,
+                "variables": variables if 'variables' in locals() else None
+            }
         }
 
 
@@ -293,19 +379,14 @@ async def search_external_factcheck_databases(
         }
 
 
-async def search_specific_cofacts_article(
+async def get_single_cofacts_article(
     article_id: str
 ) -> Dict[str, Any]:
     """
-    Get a specific article from Cofacts database by ID.
+    Get a single article from Cofacts database by ID.
 
-    Returns detailed information about a Cofacts article including:
-    - Full text content or OCR/transcript for media
-    - All fact-check responses (articleReplies) with community feedback
-    - Additional context from reporters (replyRequests) with ratings
-    - Related articles that might have existing fact-checks
-    - Cooccurrences showing messages shared together
-    - URL metadata for any links in the message
+    Returns the same detailed article information as search_cofacts_database, but for a single specific article.
+    For detailed field descriptions, see search_cofacts_database function documentation.
 
     The article ID can be used to construct Cofacts URLs: https://cofacts.tw/article/{article_id}
 
@@ -313,163 +394,43 @@ async def search_specific_cofacts_article(
         article_id: The Cofacts article ID to retrieve
 
     Returns:
-        Detailed article information from Cofacts
+        Detailed article information from Cofacts (same structure as search_cofacts_database results)
     """
     try:
-        graphql_query = """
-        query GetArticle($id: String!) {
-          GetArticle(id: $id) {
-            id
-            text
-            createdAt
-            articleType
-            attachmentUrl(variant: PREVIEW)
-            attachmentHash
-            replyCount
-            replyRequestCount
-            contributors {
-              user {
-                name
-              }
-              updatedAt
-            }
-            user {
-              name
-            }
-            articleReplies(statuses: [NORMAL]) {
-              id
-              reply {
-                id
-                type
-                text
-                createdAt
-                reference
-                user {
-                  name
-                }
-                hyperlinks {
-                  url
-                  normalizedUrl
-                  title
-                  summary
-                  topImageUrl
-                  status
-                  error
-                }
-              }
-              user {
-                name
-              }
-              createdAt
-              positiveFeedbackCount
-              negativeFeedbackCount
-              feedbacks(statuses: [NORMAL]) {
-                vote
-                comment
-                createdAt
-                user {
-                  name
-                }
-              }
-            }
-            replyRequests(statuses: [NORMAL]) {
-              user {
-                name
-              }
-              reason
-              createdAt
-              positiveFeedbackCount
-              negativeFeedbackCount
-            }
-            hyperlinks {
-              url
-              normalizedUrl
-              title
-              summary
-              topImageUrl
-              status
-              error
-            }
-            cooccurrences {
-              id
-              articleIds
-              createdAt
-              articles {
-                id
-                text
-                articleType
-                attachmentUrl(variant: PREVIEW)
-              }
-            }
-            relatedArticles(first: 10) {
-              totalCount
-              edges {
-                node {
-                  id
-                  text
-                  articleType
-                  replyCount
-                  createdAt
-                  articleReplies(statuses: [NORMAL]) {
-                    reply {
-                      id
-                      type
-                      text
-                    }
-                    positiveFeedbackCount
-                    negativeFeedbackCount
-                  }
-                }
-                score
-              }
-            }
-            stats(dateRange: { GTE: "now-90d/d" }) {
-              date
-              lineUser
-              lineVisit
-              webUser
-              webVisit
-              liffUser
-              liffVisit
-            }
-          }
-        }
+        graphql_query = f"""
+        {COMMON_ARTICLE_FIELDS}
+
+        query GetArticle($id: String!) {{
+          GetArticle(id: $id) {{
+            ...CommonArticleFields
+          }}
+        }}
         """
 
         variables = {"id": article_id}
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                "https://api.cofacts.tw/graphql",
-                json={
-                    "query": graphql_query,
-                    "variables": variables
-                },
-                headers={
-                    "Content-Type": "application/json"
-                }
-            )
-            response.raise_for_status()
+        result = await _execute_cofacts_graphql(
+            query=graphql_query,
+            variables=variables,
+            operation_name="get specific Cofacts article"
+        )
 
-            result = response.json()
+        if "error" in result:
+            return result
 
-            if "errors" in result:
-                return {
-                    "error": f"GraphQL errors: {result['errors']}",
-                    "article_id": article_id
-                }
-
-            article = result["data"]["GetArticle"]
-            if not article:
-                return {
-                    "error": f"Article not found",
-                    "article_id": article_id
-                }
-
+        article = result["data"]["GetArticle"]
+        if not article:
             return {
+                "error": f"Article not found",
                 "article_id": article_id,
-                "article": article
+                "graphql_request": result["graphql_request"]
             }
+
+        return {
+            "article_id": article_id,
+            "article": article,
+            "graphql_request": result["graphql_request"]
+        }
 
     except Exception as e:
         return {
