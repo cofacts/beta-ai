@@ -20,12 +20,12 @@ This package provides a hierarchical agent system for fact-checking suspicious m
 
 The AI Writer can delegate tasks to specialized sub-agents:
 - AI Investigator: Deep research using Cofacts DB, external fact-check sources
-- AI Verifier: Verifies claims against provided URLs and sources  
+- AI Verifier: Verifies claims against provided URLs and sources
 - AI Proof-readers: Role-play different political perspectives to test replies
 
 Usage:
     from cofacts_ai import agent
-    
+
     response = await agent.run_async(
         "Please fact-check this message: [suspicious message]"
     )

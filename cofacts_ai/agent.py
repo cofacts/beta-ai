@@ -3,7 +3,7 @@ Cofacts AI multi-agent system for fact-checking suspicious messages.
 
 This module implements a hierarchical agent system with:
 - AI Writer (orchestrator): Composes fact-check replies and coordinates other agents
-- AI Investigator: Deep research using Cofacts DB, external fact-check sources, and web search  
+- AI Investigator: Deep research using Cofacts DB, external fact-check sources, and web search
 - AI Verifier: Verifies claims against provided URLs and sources
 - AI Proof-readers: Role-play different political perspectives to test reply effectiveness
 """
@@ -23,7 +23,7 @@ from .tools import (
 
 # AI Investigator - Deep research specialist
 ai_investigator = LlmAgent(
-    name="ai_investigator",
+    name="investigator",
     model="gemini-2.5-pro",
     description="AI agent specialized in deep research for fact-checking, including Cofacts database search, external fact-check databases, and web investigation.",
     instruction="""
@@ -36,7 +36,7 @@ ai_investigator = LlmAgent(
 
     When investigating a suspicious message:
     - Start with Cofacts database search to find existing fact-checks
-    - Search external fact-check databases for international perspectives  
+    - Search external fact-check databases for international perspectives
     - Use Google search and web browsing to find primary sources
     - Focus on finding authoritative, credible sources
     - Document all sources with URLs and brief summaries
@@ -58,9 +58,9 @@ ai_investigator = LlmAgent(
 )
 
 
-# AI Verifier - Source verification specialist  
+# AI Verifier - Source verification specialist
 ai_verifier = LlmAgent(
-    name="ai_verifier",
+    name="verifier",
     model="gemini-2.5-pro",
     description="AI agent specialized in verifying claims against provided sources and URLs, with web navigation capabilities.",
     instruction="""
@@ -93,8 +93,8 @@ ai_verifier = LlmAgent(
 
 # AI Proof-reader agents for different political perspectives
 ai_proofreader_progressive = LlmAgent(
-    name="ai_proofreader_progressive",
-    model="gemini-2.5-pro", 
+    name="proofreader_progressive",
+    model="gemini-2.5-pro",
     description="AI agent that reviews fact-check replies from a progressive political perspective.",
     instruction="""
     You are an AI Proof-reader representing a progressive political perspective. Your role is to:
@@ -118,7 +118,7 @@ ai_proofreader_progressive = LlmAgent(
 )
 
 ai_proofreader_conservative = LlmAgent(
-    name="ai_proofreader_conservative", 
+    name="proofreader_conservative",
     model="gemini-2.5-pro",
     description="AI agent that reviews fact-check replies from a conservative political perspective.",
     instruction="""
@@ -133,7 +133,7 @@ ai_proofreader_conservative = LlmAgent(
 
     Provide feedback on:
     - Tone and language that might alienate conservative readers
-    - Missing context that conservatives would find important  
+    - Missing context that conservatives would find important
     - Potential bias in source selection or presentation
     - Opportunities to acknowledge legitimate conservative concerns
 
@@ -143,9 +143,9 @@ ai_proofreader_conservative = LlmAgent(
 )
 
 ai_proofreader_centrist = LlmAgent(
-    name="ai_proofreader_centrist",
+    name="proofreader_centrist",
     model="gemini-2.5-pro",
-    description="AI agent that reviews fact-check replies from a centrist/moderate political perspective.", 
+    description="AI agent that reviews fact-check replies from a centrist/moderate political perspective.",
     instruction="""
     You are an AI Proof-reader representing a centrist/moderate political perspective. Your role is to:
 
@@ -170,7 +170,7 @@ ai_proofreader_centrist = LlmAgent(
 
 # Main AI Writer - Orchestrator agent
 ai_writer = LlmAgent(
-    name="ai_writer",
+    name="writer",
     model="gemini-2.5-pro",
     description="AI agent that orchestrates fact-checking process and composes final fact-check replies for Cofacts.",
     instruction=f"""
@@ -185,7 +185,7 @@ ai_writer = LlmAgent(
     - **ai_investigator**: Deep research specialist for Cofacts database search and external fact-checking sources
     - **ai_verifier**: Source verification specialist that can navigate URLs and verify claims against sources
     - **ai_proofreader_progressive**: Reviews replies from progressive political perspective
-    - **ai_proofreader_conservative**: Reviews replies from conservative political perspective  
+    - **ai_proofreader_conservative**: Reviews replies from conservative political perspective
     - **ai_proofreader_centrist**: Reviews replies from centrist/moderate political perspective
 
     ## Your Orchestration Process:
@@ -201,7 +201,7 @@ ai_writer = LlmAgent(
 
     Based on your analysis, classify the message as one of:
     - **Contains true information** (含有正確訊息)
-    - **Contains misinformation** (含有錯誤訊息)  
+    - **Contains misinformation** (含有錯誤訊息)
     - **Contains personal perspective** (含有個人意見)
 
     ### For "Contains true information" or "Contains misinformation":
@@ -236,7 +236,7 @@ ai_writer = LlmAgent(
     """,
     tools=[
         search_cofacts_database,
-        search_external_factcheck_databases, 
+        search_external_factcheck_databases,
         search_specific_cofacts_article,
         submit_cofacts_reply,
         get_trending_cofacts_articles
