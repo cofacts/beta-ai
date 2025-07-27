@@ -20,8 +20,8 @@ COMMON_ARTICLE_FIELDS = """
     createdAt
     articleType
     attachmentUrl(variant: PREVIEW)
-    replyCount
-    replyRequestCount
+    factCheckCount: replyCount
+    communityDemandCount: replyRequestCount
     hyperlinks {
       url
       title
@@ -29,7 +29,7 @@ COMMON_ARTICLE_FIELDS = """
       status
       error
     }
-    articleReplies(statuses: [NORMAL]) {
+    factCheckResponses: articleReplies(statuses: [NORMAL]) {
       id
       reply {
         id
@@ -54,8 +54,8 @@ COMMON_ARTICLE_FIELDS = """
         name
       }
       createdAt
-      positiveFeedbackCount
-      negativeFeedbackCount
+      helpfulCount: positiveFeedbackCount
+      unhelpfulCount: negativeFeedbackCount
       feedbacks(statuses: [NORMAL]) {
         vote
         comment
@@ -65,16 +65,16 @@ COMMON_ARTICLE_FIELDS = """
         }
       }
     }
-    replyRequests(statuses: [NORMAL]) {
+    additionalContext: replyRequests(statuses: [NORMAL]) {
       user {
         name
       }
       reason
       createdAt
-      positiveFeedbackCount
-      negativeFeedbackCount
+      helpfulCount: positiveFeedbackCount
+      unhelpfulCount: negativeFeedbackCount
     }
-    cooccurrences {
+    bundledMessages: cooccurrences {
       id
       articleIds
       createdAt
@@ -92,16 +92,16 @@ COMMON_ARTICLE_FIELDS = """
           id
           text
           articleType
-          replyCount
+          factCheckCount: replyCount
           createdAt
-          articleReplies(statuses: [NORMAL]) {
+          factCheckResponses: articleReplies(statuses: [NORMAL]) {
             reply {
               id
               type
               text
             }
-            positiveFeedbackCount
-            negativeFeedbackCount
+            helpfulCount: positiveFeedbackCount
+            unhelpfulCount: negativeFeedbackCount
           }
         }
         score
@@ -113,8 +113,8 @@ COMMON_ARTICLE_FIELDS = """
       lineVisit
       webUser
       webVisit
-      liffUser
-      liffVisit
+      downstreamBotUsers: liffUser
+      downstreamBotVisits: liffVisit
     }
   }
 """
@@ -202,11 +202,11 @@ async def search_cofacts_database(
     - articleType: Whether the message is TEXT, IMAGE, VIDEO, or AUDIO
     - text: For text messages, this is the content. For media, this is OCR/transcript result
     - attachmentUrl: Preview of media content (when articleType is not TEXT)
-    - articleReplies: Fact-check responses from collaborators with feedback scores
-    - replyRequests: Additional context from reporters with community ratings
-    - replyRequestCount: Number of people who wanted to know the truth before fact-checks were available
+    - factCheckResponses: Fact-check responses from collaborators with community feedback scores (helpfulCount/unhelpfulCount)
+    - additionalContext: Additional context from reporters with community ratings (helpfulCount/unhelpfulCount)
+    - communityDemandCount: Number of people who wanted to know the truth before fact-checks were available
     - hyperlinks: URLs found in the message with crawled metadata
-    - cooccurrences: Messages reported together, indicating they were shared as a set
+    - bundledMessages: Messages reported together, indicating they were shared as a set
     - relatedArticles: Similar messages that may have existing fact-checks
     - stats: Actual traffic/popularity data (views, visits) - use this for current hotness metrics
 
@@ -220,8 +220,11 @@ async def search_cofacts_database(
         order_by: Sort order - "_score" (relevance), "replyRequestCount" (demand for fact-checks), "createdAt"
 
     Note about metrics:
-    - replyRequestCount: Reflects community demand - how many people wanted to know the truth before fact-checks were available
-    - stats field: Provides actual traffic/popularity data (views, visits) for current hotness metrics
+    - communityDemandCount: Reflects community demand - how many people wanted to know the truth before fact-checks were available
+    - stats field: Provides actual traffic/popularity data across different platforms:
+      * LINE chatbot stats (lineUser/lineVisit) show direct user engagement
+      * Website stats (webUser/webVisit) show web-based traffic
+      * Downstream bot stats (downstreamBotUsers/downstreamBotVisits) indicate usage by third-party fact-checking services
 
     Returns:
         Search results from Cofacts database with pagination info
