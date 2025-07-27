@@ -30,7 +30,6 @@ COMMON_ARTICLE_FIELDS = """
       error
     }
     factCheckResponses: articleReplies(statuses: [NORMAL]) {
-      id
       reply {
         id
         type
