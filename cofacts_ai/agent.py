@@ -19,6 +19,11 @@ from .tools import (
     get_single_cofacts_article,
     submit_cofacts_reply
 )
+from agent_tracing_wrapper import (
+    create_traced_llm_agent,
+    TracedAgentOrchestrator,
+    trace_conversation_turn
+)
 
 
 # AI Investigator - Deep research specialist
@@ -347,6 +352,14 @@ ai_proofreader_minor_parties = LlmAgent(
     tools=[]
 )
 
+# Enhance all agents with conversation tracing
+ai_investigator = create_traced_llm_agent(ai_investigator, "ai_investigator")
+ai_verifier = create_traced_llm_agent(ai_verifier, "ai_verifier")
+ai_proofreader_kmt = create_traced_llm_agent(ai_proofreader_kmt, "ai_proofreader_kmt")
+ai_proofreader_dpp = create_traced_llm_agent(ai_proofreader_dpp, "ai_proofreader_dpp")
+ai_proofreader_tpp = create_traced_llm_agent(ai_proofreader_tpp, "ai_proofreader_tpp")
+ai_proofreader_minor_parties = create_traced_llm_agent(ai_proofreader_minor_parties, "ai_proofreader_minor_parties")
+
 
 # Main AI Writer - Orchestrator agent
 #
@@ -521,5 +534,8 @@ ai_writer = LlmAgent(
         ai_proofreader_minor_parties
     ]
 )
+
+# Enhance the main AI Writer with conversation tracing
+ai_writer = create_traced_llm_agent(ai_writer, "ai_writer")
 
 

@@ -15,6 +15,7 @@ from .api_tools import (
     get_github_pull_request_from_url,
     get_github_comment_from_url
 )
+from agent_tracing_wrapper import create_traced_llm_agent
 
 def extract_hackmd_id(url: str) -> dict:
     """
@@ -157,3 +158,6 @@ root_agent = LlmAgent(
         get_github_comment_from_url
     ],
 )
+
+# Enhance the HackMD agent with conversation tracing
+root_agent = create_traced_llm_agent(root_agent, "hackmd_agent")

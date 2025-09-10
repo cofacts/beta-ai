@@ -10,6 +10,7 @@ import json
 import asyncio
 from typing import Dict, List, Any, Optional
 import httpx
+from langfuse_tracing import trace_tool_call, record_tool_result
 
 
 # GraphQL fragment for common Article fields
@@ -228,9 +229,21 @@ async def search_cofacts_database(
     Returns:
         Search results from Cofacts database with pagination info
     """
-    try:
-        # Build filter object based on parameters
-        filter_obj = {}
+    # Create tracing span for this tool call
+    with trace_tool_call(
+        "search_cofacts_database",
+        input_params={
+            "query": query,
+            "article_ids": article_ids,
+            "limit": limit,
+            "order_by": order_by,
+            "reply_count_max": reply_count_max,
+            "days_back": days_back
+        }
+    ) as span:
+        try:
+            # Build filter object based on parameters
+            filter_obj = {}
 
         if query:
             filter_obj["moreLikeThis"] = {
@@ -300,23 +313,33 @@ async def search_cofacts_database(
             operation_name="search Cofacts database"
         )
 
-        if "error" in result:
-            return result
+            if "error" in result:
+                error_result = result
+                record_tool_result(span, error_result, success=False)
+                return error_result
 
-        # Extract ListArticles data from the successful response
-        return {
-            "graphql_request": result["graphql_request"],
-            "data": result["data"]["ListArticles"]
-        }
-
-    except Exception as e:
-        return {
-            "error": f"Failed to search Cofacts database: {str(e)}",
-            "graphql_request": {
-                "query": graphql_query if 'graphql_query' in locals() else None,
-                "variables": variables if 'variables' in locals() else None
+            # Extract ListArticles data from the successful response
+            result_data = {
+                "graphql_request": result["graphql_request"],
+                "data": result["data"]["ListArticles"]
             }
-        }
+            
+            # Record successful tool result
+            record_tool_result(span, result_data, success=True)
+            return result_data
+
+        except Exception as e:
+            error_result = {
+                "error": f"Failed to search Cofacts database: {str(e)}",
+                "graphql_request": {
+                    "query": graphql_query if 'graphql_query' in locals() else None,
+                    "variables": variables if 'variables' in locals() else None
+                }
+            }
+            
+            # Record error in tool result
+            record_tool_result(span, error_result, success=False)
+            return error_result
 
 
 async def search_external_factcheck_databases(
@@ -398,8 +421,13 @@ async def get_single_cofacts_article(
     Returns:
         Detailed article information from Cofacts (same structure as search_cofacts_database results)
     """
-    try:
-        graphql_query = f"""
+    # Create tracing span for this tool call
+    with trace_tool_call(
+        "get_single_cofacts_article",
+        input_params={"article_id": article_id}
+    ) as span:
+        try:
+            graphql_query = f"""
         {COMMON_ARTICLE_FIELDS}
 
         query GetArticle($id: String!) {{
@@ -417,28 +445,40 @@ async def get_single_cofacts_article(
             operation_name="get specific Cofacts article"
         )
 
-        if "error" in result:
-            return result
+            if "error" in result:
+                error_result = result
+                record_tool_result(span, error_result, success=False)
+                return error_result
 
-        article = result["data"]["GetArticle"]
-        if not article:
-            return {
-                "error": f"Article not found",
+            article = result["data"]["GetArticle"]
+            if not article:
+                error_result = {
+                    "error": f"Article not found",
+                    "article_id": article_id,
+                    "graphql_request": result["graphql_request"]
+                }
+                record_tool_result(span, error_result, success=False)
+                return error_result
+
+            result_data = {
                 "article_id": article_id,
+                "article": article,
                 "graphql_request": result["graphql_request"]
             }
+            
+            # Record successful tool result
+            record_tool_result(span, result_data, success=True)
+            return result_data
 
-        return {
-            "article_id": article_id,
-            "article": article,
-            "graphql_request": result["graphql_request"]
-        }
-
-    except Exception as e:
-        return {
-            "error": f"Failed to get Cofacts article: {str(e)}",
-            "article_id": article_id
-        }
+        except Exception as e:
+            error_result = {
+                "error": f"Failed to get Cofacts article: {str(e)}",
+                "article_id": article_id
+            }
+            
+            # Record error in tool result
+            record_tool_result(span, error_result, success=False)
+            return error_result
 
 
 async def submit_cofacts_reply(

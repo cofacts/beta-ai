@@ -1,6 +1,7 @@
 import datetime
 from zoneinfo import ZoneInfo
 from google.adk.agents import Agent
+from agent_tracing_wrapper import create_traced_llm_agent
 
 def get_weather(city: str) -> dict:
     """Retrieves the current weather report for a specified city.
@@ -65,4 +66,7 @@ root_agent = Agent(
     ),
     tools=[get_weather, get_current_time],
 )
+
+# Enhance the multi-tool agent with conversation tracing  
+root_agent = create_traced_llm_agent(root_agent, "weather_time_agent")
 
