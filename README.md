@@ -21,12 +21,12 @@
 
 ## Running the Agents
 
-Use `uv run` to execute the `adk web` command. `uv` will automatically ensure the project environment (`.venv`) exists and is synced with the `uv.lock` file before running the command.
+Use `uv run` to execute the `main.py`. `uv` will automatically ensure the project environment (`.venv`) exists and is synced with the `uv.lock` file before running the command.
 
 ```bash
-uv run adk web
+uv run --env-file .env main.py
 ```
-The web interface will be available at `localhost:8000`.
+The web interface will be available at `localhost:8080`.
 
 ## Running with Docker Compose
 
