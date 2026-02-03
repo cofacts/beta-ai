@@ -1,4 +1,4 @@
-# My ADK Agents
+# Cofacts internal ADK agents
 
 ## Initial Setup
 
