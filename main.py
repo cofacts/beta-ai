@@ -1,30 +1,36 @@
 import os
-import base64
-from opentelemetry import trace
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from openinference.instrumentation.google_adk import GoogleADKInstrumentor
+from langfuse import get_client
 
 LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
-OTEL_EXPORTER_OTLP_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 
-if LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY and OTEL_EXPORTER_OTLP_ENDPOINT:
-    LANGFUSE_AUTH = base64.b64encode(
-        f"{LANGFUSE_PUBLIC_KEY}:{LANGFUSE_SECRET_KEY}".encode()
-    ).decode()
-    os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = f"Authorization=Basic {LANGFUSE_AUTH}"
-    # OTEL_EXPORTER_OTLP_ENDPOINT is now also read from env and checked
+if LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY:
+    # Set default host and service name for OpenTelemetry/Langfuse if not provided
+    if not os.getenv("LANGFUSE_BASE_URL"):
+        os.environ["LANGFUSE_BASE_URL"] = "https://langfuse.cofacts.tw"
+    if not os.getenv("OTEL_SERVICE_NAME"):
+        os.environ["OTEL_SERVICE_NAME"] = "adk_langfuse_service"
 
-    provider = TracerProvider(resource=Resource.create({"service.name": "adk_langfuse_service"}))
-    exporter = OTLPSpanExporter()
-    provider.add_span_processor(BatchSpanProcessor(exporter))
-    trace.set_tracer_provider(provider)
-    tracer = trace.get_tracer("adk_application_tracer")
-    print(f"Langfuse OpenTelemetry initialized. Endpoint: {OTEL_EXPORTER_OTLP_ENDPOINT}")
+    # Initialize Langfuse client
+    # get_client() will use LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL from env
+    # It also initializes the OpenTelemetry TracerProvider with a Langfuse SpanProcessor
+    langfuse = get_client()
+
+    # Instrument Google ADK
+    GoogleADKInstrumentor().instrument()
+
+    # Verify connection
+    host = os.environ["LANGFUSE_BASE_URL"]
+    try:
+        if langfuse.auth_check():
+            print(f"Langfuse client is authenticated and ready! (Host: {host})")
+        else:
+            print(f"Langfuse authentication failed. Please check your credentials and host ({host}).")
+    except Exception as e:
+        print(f"Error checking Langfuse authentication: {e}")
 else:
-    print(f"Langfuse OpenTelemetry tracing will be disabled.")
+    print("Langfuse credentials not set. Tracing and Langfuse client will be disabled.")
 
 from fastapi import FastAPI
 from google.adk.cli.fast_api import get_fast_api_app
