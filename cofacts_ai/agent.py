@@ -24,42 +24,72 @@ from .tools import (
     resolve_vertex_redirect
 )
 
-
-async def resolve_investigator_urls(
+async def append_grounding_sources(
     callback_context: CallbackContext,
     llm_response: LlmResponse
 ) -> Optional[LlmResponse]:
     """
-    After-model callback for investigator to resolve vertexaisearch redirect URLs.
-    Extracts all URLs, resolves them if they are redirects, and updates the response text.
+    After-model callback to append grounding sources to the response.
+    Extracts sources from grounding metadata, resolves redirect URLs,
+    and appends them as a markdown list.
     """
-    if not llm_response or not llm_response.content or not llm_response.content.parts:
+    metadata = llm_response.grounding_metadata
+    chunks = metadata.grounding_chunks
+    if not chunks:
         return None
 
-    modified = False
-    for part in llm_response.content.parts:
-        if not part.text:
-            continue
+    output_parts = ["\n\n## Sources Found\n"]
+    seen_urls = set()
+    url_map = {}  # original -> resolved
 
-        # Find all URLs that look like vertexaisearch redirects
-        # Format: vertexaisearch.cloud.google.com/grounding-api-redirect/...
-        urls = re.findall(r'(https://vertexaisearch\.cloud\.google\.com/grounding-api-redirect/[^\s\)\"\'\>]+)', part.text)
+    # 1. Collect and resolve all unique URLs from grounding chunks
+    for chunk in chunks:
+        if chunk.web and chunk.web.uri and chunk.web.uri not in seen_urls:
+            uri = chunk.web.uri
+            seen_urls.add(uri)
+            resolved_url = await resolve_vertex_redirect(uri)
+            url_map[uri] = resolved_url
 
-        for original_url in set(urls):
-            resolved_url = await resolve_vertex_redirect(original_url)
-            if resolved_url != original_url:
-                # If the URL is already inside a markdown link [guessed](original),
-                # replace the entire markdown link with our resolved one.
-                # We look for [ ... ](original_url)
-                markdown_pattern = re.compile(r'\[[^\]]*\]\(' + re.escape(original_url) + r'\)')
-                if markdown_pattern.search(part.text):
-                    part.text = markdown_pattern.sub(f"[{resolved_url}]({original_url})", part.text)
-                else:
-                    # Otherwise just replace the raw URL
-                    part.text = part.text.replace(original_url, f"[{resolved_url}]({original_url})")
-                modified = True
+            title = chunk.web.title or "Unknown Source"
+            display_uri = f"[{resolved_url}]({uri})" if resolved_url != uri else uri
 
-    return llm_response if modified else None
+            output_parts.append(f"**Source {len(seen_urls)}**: {title}")
+            output_parts.append(f"- **URL**: {display_uri}")
+            output_parts.append("") # Extra newline
+
+    # 2. Perform "markdown work" in response text (formerly resolve_investigator_urls)
+    # Replace occurrences of grounding redirect URLs in the main text
+    if llm_response.content and llm_response.content.parts:
+        for part in llm_response.content.parts:
+            if not part.text:
+                continue
+            for original_url, resolved_url in url_map.items():
+                if resolved_url != original_url:
+                    # If the URL is already inside a markdown link [label](original),
+                    # replace the entire markdown link with our resolved one.
+                    markdown_pattern = re.compile(r'\[[^\]]*\]\(' + re.escape(original_url) + r'\)')
+                    if markdown_pattern.search(part.text):
+                        part.text = markdown_pattern.sub(f"[{resolved_url}]({original_url})", part.text)
+                    else:
+                        # Otherwise just replace the raw URL
+                        part.text = part.text.replace(original_url, f"[{resolved_url}]({original_url})")
+
+    # 3. Append Search Widget if present (Policy requirement)
+    if metadata.search_entry_point and metadata.search_entry_point.rendered_content:
+        output_parts.append("\n\n## Search Widget (Policy Requirement)\n")
+        output_parts.append(metadata.search_entry_point.rendered_content)
+
+    if len(output_parts) > 1:
+        # Append to the first part of the content
+        if llm_response.content and llm_response.content.parts:
+             # Ensure the first part is text
+            if not llm_response.content.parts[0].text:
+                 llm_response.content.parts[0].text = ""
+
+            llm_response.content.parts[0].text += "\n".join(output_parts)
+            return llm_response
+
+    return llm_response
 
 
 # AI Investigator - Deep research specialist
@@ -67,7 +97,7 @@ ai_investigator = LlmAgent(
     name="investigator",
     model="gemini-3-flash-preview",
     description="AI agent specialized in web research using Google Search for fact-checking.",
-    after_model_callback=resolve_investigator_urls,
+    after_model_callback=append_grounding_sources,
     instruction="""
     You are an AI Investigator specialized in web research for fact-checking. Your role is to conduct thorough web research and provide properly structured source citations.
 
@@ -76,7 +106,6 @@ ai_investigator = LlmAgent(
     1. **Web Search**: Use Google Search to find authoritative sources and primary information
     2. **Source Discovery**: Identify credible news sources, official statements, and expert opinions
     3. **Evidence Collection**: Gather diverse perspectives and supporting evidence from the web
-    4. **Citation Management**: Extract and organize grounding metadata for proper source attribution
 
     ## Research Strategy:
 
@@ -87,82 +116,12 @@ ai_investigator = LlmAgent(
     - Search for original documents or statements when possible
     - Cross-verify information across multiple credible sources
 
-    ## Output Format Requirements:
+    ## Output Requirements:
 
-    **CRITICAL**: When using Google Search, you MUST process and present the grounding metadata properly:
+    1. **Comprehensive Report**: Synthesize information from all search results into a coherent answer.
+    2. **Search Queries**: List the search queries used.
 
-    ### 1. Search Summary
-    Provide a concise summary of your findings.
-
-    ### 2. Grounded Response
-    Present the complete integrated response from candidates[0].content.parts[0].text. This is the model's comprehensive answer that synthesizes information from all search results.
-
-    ### 3. Search Queries Used
-    List the search queries that were executed (from webSearchQueries in grounding metadata).
-
-    ### 4. Source List
-    Extract sources from groundingChunks and groundingSupports to create a structured list:
-
-    **Format for each source:**
-    - **[Source #]**: [Title from groundingChunks]
-    - **URL**: [EXACT URI from groundingChunks. MUST BE A RAW STRING. DO NOT use markdown format like `[text](url)`. NEVER guess or invent a "pretty" URL.]
-    - **Relevant Content**: [Text segments from groundingSupports that reference this source]
-    - **Credibility Assessment**: [Brief evaluation of source reliability]
-
-    ### 5. Evidence Assessment
-    - **Quality**: Rate the overall quality of sources found
-    - **Diversity**: Assess variety of perspectives represented
-    - **Recency**: Note how current the information is
-    - **Gaps**: Identify any missing perspectives or information
-
-    ### 6. Policy Compliance
-    **MANDATORY**: Include the rendered search widget HTML/CSS from searchEntryPoint.renderedContent in your response. This is required by Google Search grounding policy.
-
-    ## Quality Standards:
-    - **STRICT URL INTEGRITY**: You MUST use the exact URI provided in `groundingChunks`.
-    - **NO HALLUCINATION**: NEVER guess or invent a human-readable URL. ALWAYS use the raw URI from the metadata. DO NOT wrap the URL in markdown brackets `[ ]( )`. Just output the raw URL string.
-    - Prioritize authoritative sources (government, academic, established media)
-    - Note any conflicts or contradictions between sources
-    - Highlight when information cannot be verified
-    - Be transparent about source limitations
-    - Suggest additional research directions when appropriate
-
-    ## Example Output Structure:
-
-    ```
-    ## Search Summary
-    [Brief overview of findings]
-
-    ## Grounded Response
-    [The complete text response from candidates[0].content.parts[0].text - this is the model's integrated answer based on all search results]
-
-    ## Search Queries Executed
-    1. [Query 1]
-    2. [Query 2]
-
-    ## Sources Found
-
-    **Source 1**: [Title]
-    - **URL**: [URL]
-    - **Relevant Content**: "[Quoted relevant text segments from groundingSupports]"
-    - **Credibility**: [Assessment]
-
-    **Source 2**: [Title]
-    - **URL**: [URL]
-    - **Relevant Content**: "[Quoted relevant text segments from groundingSupports]"
-    - **Credibility**: [Assessment]
-
-    ## Evidence Assessment
-    - **Quality**: [Rating and explanation]
-    - **Diversity**: [Assessment]
-    - **Recency**: [Assessment]
-    - **Gaps**: [Any missing information]
-
-    ## Search Widget (Policy Requirement)
-    [renderedContent HTML/CSS]
-    ```
-
-    Focus on providing comprehensive, well-sourced research that can support accurate fact-checking.
+    Focus on providing comprehensive, well-sourced research content.
     """,
     tools=[google_search]
 )
