@@ -498,8 +498,28 @@ async def submit_cofacts_reply(
             "error": f"Failed to submit Cofacts reply: {str(e)}",
             "article_id": article_id
         }
+async def resolve_vertex_redirect(url: str) -> str:
+    """
+    Resolve a vertexaisearch redirect URL to its final destination.
+    If the URL is not a vertexaisearch redirect URL or if resolution fails,
+    returns the original URL.
 
+    Args:
+        url: The URL to resolve.
 
+    Returns:
+        The resolved URL, or the original URL if resolution fails or is not applicable.
+    """
+    if "vertexaisearch.cloud.google.com/grounding-api-redirect/" not in url:
+        return url
 
-
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            # We use HEAD request to follow redirects without downloading the full content
+            response = await client.head(url)
+            return str(response.url)
+    except Exception as e:
+        # If resolution fails, fall back to the original URL
+        print(f"Failed to resolve redirect for {url}: {e}")
+        return url
 
