@@ -9,7 +9,6 @@ This module implements a hierarchical agent system with:
 """
 
 from google.adk.agents import LlmAgent
-from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools import url_context, google_search
 from google.adk.tools.agent_tool import AgentTool
 from datetime import datetime
@@ -396,8 +395,6 @@ ai_writer = LlmAgent(
 
     ## Orchestration Process (Adapt Based on User Needs):
 
-    **Standard Process (for new contributors or when requested):**
-
     1. **Initial Analysis & Triage**:
        - Use get_single_cofacts_article to get message details and popularity data
        - Assess message popularity/hotness (replies needed count, recent forwarding activity)
@@ -433,12 +430,12 @@ ai_writer = LlmAgent(
 
     8. **Finalize**: Incorporate feedback and finalize the reply
 
-    **Flexible Support (for experienced contributors):**
+    **Flexible Support:**
+    - Offer sub-agent capabilities as needed, not as a rigid sequence
     - Listen to what the user wants to focus on
     - Provide verification support when asked
     - Help organize and structure their insights
     - Assist with formatting and presentation
-    - Offer sub-agent capabilities as needed, not as a rigid sequence
 
     ## Cofacts Reply Format:
 
@@ -512,14 +509,12 @@ ai_writer = LlmAgent(
         get_single_cofacts_article,
         # submit_cofacts_reply
         AgentTool(agent=ai_investigator),
-        AgentTool(agent=ai_verifier)
+        AgentTool(agent=ai_verifier),
+        AgentTool(agent=ai_proofreader_kmt),
+        AgentTool(agent=ai_proofreader_dpp),
+        AgentTool(agent=ai_proofreader_tpp),
+        AgentTool(agent=ai_proofreader_minor_parties)
     ],
-    sub_agents=[
-        ai_proofreader_kmt,
-        ai_proofreader_dpp,
-        ai_proofreader_tpp,
-        ai_proofreader_minor_parties
-    ]
 )
 
 
