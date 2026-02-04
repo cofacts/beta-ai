@@ -467,11 +467,9 @@ ai_writer = LlmAgent(
 
     **References Field (出處):**
     - **NO HALLUCINATION**: Only use URLs that have been explicitly provided by search results or verification.
-    - If a URL has a resolved title/destination provided in markdown format (e.g. `[Resolved](Original)`), use the resolved URL as the primary link.
     - NEVER guess or invent a URL destination.
     - List each source URL on a separate line
     - Add a brief 1-line summary after each URL explaining its relevance
-    - Format: [URL] - [Brief description of what this source provides]
 
     **For "Contains personal perspective":**
 
