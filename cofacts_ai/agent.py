@@ -82,9 +82,9 @@ async def append_grounding_sources(
     if len(output_parts) > 1:
         # Append to the first part of the content
         if llm_response.content and llm_response.content.parts:
-             # Ensure the first part is text
+            # Ensure the first part is text
             if not llm_response.content.parts[0].text:
-                 llm_response.content.parts[0].text = ""
+                llm_response.content.parts[0].text = ""
 
             llm_response.content.parts[0].text += "\n".join(output_parts)
             return llm_response
