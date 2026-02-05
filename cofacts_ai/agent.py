@@ -8,24 +8,96 @@ This module implements a hierarchical agent system with:
 - AI Proof-readers: Role-play different political perspectives to test reply effectiveness
 """
 
+from typing import Dict, List, Any, Optional
 from google.adk.agents import LlmAgent
-from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools import url_context, google_search
 from google.adk.tools.agent_tool import AgentTool
 from datetime import datetime
+import re
+from google.adk.agents.callback_context import CallbackContext
+from google.adk.models.llm_response import LlmResponse
 
 from .tools import (
     search_cofacts_database,
     get_single_cofacts_article,
-    submit_cofacts_reply
+    submit_cofacts_reply,
+    resolve_vertex_redirect
 )
+
+async def append_grounding_sources(
+    callback_context: CallbackContext,
+    llm_response: LlmResponse
+) -> Optional[LlmResponse]:
+    """
+    After-model callback to append grounding sources to the response.
+    Extracts sources from grounding metadata, resolves redirect URLs,
+    and appends them as a markdown list.
+    """
+    metadata = llm_response.grounding_metadata
+    chunks = metadata.grounding_chunks
+    if not chunks:
+        return None
+
+    output_parts = ["\n\n## Sources Found\n"]
+    seen_urls = set()
+    url_map = {}  # original -> resolved
+
+    # 1. Collect and resolve all unique URLs from grounding chunks
+    for chunk in chunks:
+        if chunk.web and chunk.web.uri and chunk.web.uri not in seen_urls:
+            uri = chunk.web.uri
+            seen_urls.add(uri)
+            resolved_url = await resolve_vertex_redirect(uri)
+            url_map[uri] = resolved_url
+
+            title = chunk.web.title or "Unknown Source"
+            display_uri = f"[{resolved_url}]({uri})" if resolved_url != uri else uri
+
+            output_parts.append(f"**Source {len(seen_urls)}**: {title}")
+            output_parts.append(f"- **URL**: {display_uri}")
+            output_parts.append("") # Extra newline
+
+    # 2. Perform "markdown work" in response text (formerly resolve_investigator_urls)
+    # Replace occurrences of grounding redirect URLs in the main text
+    if llm_response.content and llm_response.content.parts:
+        for part in llm_response.content.parts:
+            if not part.text:
+                continue
+            for original_url, resolved_url in url_map.items():
+                if resolved_url != original_url:
+                    # If the URL is already inside a markdown link [label](original),
+                    # replace the entire markdown link with our resolved one.
+                    markdown_pattern = re.compile(r'\[[^\]]*\]\(' + re.escape(original_url) + r'\)')
+                    if markdown_pattern.search(part.text):
+                        part.text = markdown_pattern.sub(f"[{resolved_url}]({original_url})", part.text)
+                    else:
+                        # Otherwise just replace the raw URL
+                        part.text = part.text.replace(original_url, f"[{resolved_url}]({original_url})")
+
+    # 3. Append Search Widget if present (Policy requirement)
+    if metadata.search_entry_point and metadata.search_entry_point.rendered_content:
+        output_parts.append("\n\n## Search Widget (Policy Requirement)\n")
+        output_parts.append(metadata.search_entry_point.rendered_content)
+
+    if len(output_parts) > 1:
+        # Append to the first part of the content
+        if llm_response.content and llm_response.content.parts:
+            # Ensure the first part is text
+            if not llm_response.content.parts[0].text:
+                llm_response.content.parts[0].text = ""
+
+            llm_response.content.parts[0].text += "\n".join(output_parts)
+            return llm_response
+
+    return llm_response
 
 
 # AI Investigator - Deep research specialist
 ai_investigator = LlmAgent(
     name="investigator",
-    model="gemini-2.5-pro",
+    model="gemini-3-flash-preview",
     description="AI agent specialized in web research using Google Search for fact-checking.",
+    after_model_callback=append_grounding_sources,
     instruction="""
     You are an AI Investigator specialized in web research for fact-checking. Your role is to conduct thorough web research and provide properly structured source citations.
 
@@ -34,7 +106,6 @@ ai_investigator = LlmAgent(
     1. **Web Search**: Use Google Search to find authoritative sources and primary information
     2. **Source Discovery**: Identify credible news sources, official statements, and expert opinions
     3. **Evidence Collection**: Gather diverse perspectives and supporting evidence from the web
-    4. **Citation Management**: Extract and organize grounding metadata for proper source attribution
 
     ## Research Strategy:
 
@@ -45,81 +116,12 @@ ai_investigator = LlmAgent(
     - Search for original documents or statements when possible
     - Cross-verify information across multiple credible sources
 
-    ## Output Format Requirements:
+    ## Output Requirements:
 
-    **CRITICAL**: When using Google Search, you MUST process and present the grounding metadata properly:
+    1. **Comprehensive Report**: Synthesize information from all search results into a coherent answer.
+    2. **Search Queries**: List the search queries used.
 
-    ### 1. Search Summary
-    Provide a concise summary of your findings.
-
-    ### 2. Grounded Response
-    Present the complete integrated response from candidates[0].content.parts[0].text. This is the model's comprehensive answer that synthesizes information from all search results.
-
-    ### 3. Search Queries Used
-    List the search queries that were executed (from webSearchQueries in grounding metadata).
-
-    ### 4. Source List
-    Extract sources from groundingChunks and groundingSupports to create a structured list:
-
-    **Format for each source:**
-    - **[Source #]**: [Title from groundingChunks]
-    - **URL**: [URI from groundingChunks]
-    - **Relevant Content**: [Text segments from groundingSupports that reference this source]
-    - **Credibility Assessment**: [Brief evaluation of source reliability]
-
-    ### 5. Evidence Assessment
-    - **Quality**: Rate the overall quality of sources found
-    - **Diversity**: Assess variety of perspectives represented
-    - **Recency**: Note how current the information is
-    - **Gaps**: Identify any missing perspectives or information
-
-    ### 6. Policy Compliance
-    **MANDATORY**: Include the rendered search widget HTML/CSS from searchEntryPoint.renderedContent in your response. This is required by Google Search grounding policy.
-
-    ## Quality Standards:
-
-    - Prioritize authoritative sources (government, academic, established media)
-    - Note any conflicts or contradictions between sources
-    - Highlight when information cannot be verified
-    - Be transparent about source limitations
-    - Suggest additional research directions when appropriate
-
-    ## Example Output Structure:
-
-    ```
-    ## Search Summary
-    [Brief overview of findings]
-
-    ## Grounded Response
-    [The complete text response from candidates[0].content.parts[0].text - this is the model's integrated answer based on all search results]
-
-    ## Search Queries Executed
-    1. [Query 1]
-    2. [Query 2]
-
-    ## Sources Found
-
-    **Source 1**: [Title]
-    - **URL**: [URL]
-    - **Relevant Content**: "[Quoted relevant text segments from groundingSupports]"
-    - **Credibility**: [Assessment]
-
-    **Source 2**: [Title]
-    - **URL**: [URL]
-    - **Relevant Content**: "[Quoted relevant text segments from groundingSupports]"
-    - **Credibility**: [Assessment]
-
-    ## Evidence Assessment
-    - **Quality**: [Rating and explanation]
-    - **Diversity**: [Assessment]
-    - **Recency**: [Assessment]
-    - **Gaps**: [Any missing information]
-
-    ## Search Widget (Policy Requirement)
-    [renderedContent HTML/CSS]
-    ```
-
-    Focus on providing comprehensive, well-sourced research that can support accurate fact-checking.
+    Focus on providing comprehensive, well-sourced research content.
     """,
     tools=[google_search]
 )
@@ -129,15 +131,13 @@ ai_investigator = LlmAgent(
 ai_verifier = LlmAgent(
     name="verifier",
     model="gemini-2.5-pro",
-    description="AI agent specialized in verifying whether URL content actually supports specific claims made in messages or reports.",
+    description="AI agent that reads URL content and verifies claims. Input: URL (required) and Claim (optional).",
     instruction="""
     You are an AI Verifier with a very specific and crucial task: verify whether the content of given URLs actually supports the claims being made.
 
     ## Core Mission:
-    Determine if there is a genuine connection between:
-    - Claims made in suspicious messages and their cited URLs
-    - Statements in research reports and their referenced sources
-    - Facts presented by writers and their supporting URLs
+    1. **Verify Claims**: Determine if there is a genuine connection between claims and their cited URLs
+    2. **Fact Checking**: Check statements against provided sources
 
     ## Common Problems You Help Solve:
     1. **False Citation**: Message contains multiple claims + a URL, but the URL content doesn't mention those claims at all
@@ -146,14 +146,16 @@ ai_verifier = LlmAgent(
 
     ## Your Process:
     1. **Navigate to URL**: Use url_context tool to get the actual content
-    2. **Extract Claims**: Identify the specific claims you need to verify
+    2. **Extract Claims**: Identify the specific claims to verify (if provided) OR simply summarize the content (if just asked to read)
     3. **Content Analysis**: Carefully read through the URL content
-    4. **Match Verification**: Check if the content actually mentions or supports each claim
-    5. **Report Findings**: Clearly state which claims are supported, contradicted, or not mentioned
+    4. **Match Verification**: Check if the content actually mentions or supports the claim
+    5. **Report Findings**: State the final URL, content summary, and verification result
+
 
     ## Output Format:
-    For each claim-URL pair, provide:
-    - **CLAIM**: [The specific statement being verified]
+    For each URL processed, you MUST provide:
+    - **URL**: [The URL being verified]
+    - **CLAIM**: [The specific statement being verified, or "N/A" if just resolving URL]
     - **URL CONTENT**: [Brief summary of what the URL actually says]
     - **VERIFICATION RESULT**:
       * ✅ SUPPORTED: URL clearly supports this claim (include specific quote)
@@ -184,7 +186,7 @@ ai_proofreader_kmt = LlmAgent(
 
     1. **Network Messages**: Analyze how KMT supporters might perceive suspicious messages
     2. **Source Materials**: Review news articles, editorials, or opinion pieces used in fact-checking
-    3. **Fact-Check Replies**: Evaluate final fact-check responses for fairness and credibility
+    3. **Fact-Check Replies**: Evaluate final fact-check responses. REQUIRED: Explicitly state which of your critical questions/doubts have been addressed by the reply, and which remain unresolved.
 
     ## KMT Supporter Perspective Values:
     - Traditional Chinese culture and values
@@ -203,6 +205,7 @@ ai_proofreader_kmt = LlmAgent(
     - What concerns about stability or order might arise?
 
     ## Your Feedback Should Include:
+    - **Critical Questions**: Specific questions KMT supporters would ask. Focus on what confuses them, what they don't understand, or what makes them angry.
     - Potential reactions from KMT supporters
     - Missing context important to this constituency
     - Language that might alienate traditional voters
@@ -227,7 +230,7 @@ ai_proofreader_dpp = LlmAgent(
 
     1. **Network Messages**: Analyze how DPP supporters might perceive suspicious messages
     2. **Source Materials**: Review news articles, editorials, or opinion pieces used in fact-checking
-    3. **Fact-Check Replies**: Evaluate final fact-check responses for fairness and credibility
+    3. **Fact-Check Replies**: Evaluate final fact-check responses. REQUIRED: Explicitly state which of your critical questions/doubts have been addressed by the reply, and which remain unresolved.
 
     ## DPP Supporter Perspective Values:
     - Taiwan sovereignty and independence
@@ -246,6 +249,7 @@ ai_proofreader_dpp = LlmAgent(
     - What concerns about democratic backsliding might arise?
 
     ## Your Feedback Should Include:
+    - **Critical Questions**: Specific questions DPP supporters would ask. Focus on what confuses them, what they don't understand, or what makes them angry.
     - Potential reactions from DPP supporters
     - Missing context important to this constituency
     - Language that might undermine Taiwan's democratic values
@@ -270,7 +274,7 @@ ai_proofreader_tpp = LlmAgent(
 
     1. **Network Messages**: Analyze how TPP supporters might perceive suspicious messages
     2. **Source Materials**: Review news articles, editorials, or opinion pieces used in fact-checking
-    3. **Fact-Check Replies**: Evaluate final fact-check responses for fairness and credibility
+    3. **Fact-Check Replies**: Evaluate final fact-check responses. REQUIRED: Explicitly state which of your critical questions/doubts have been addressed by the reply, and which remain unresolved.
 
     ## TPP Supporter Perspective Values:
     - Pragmatic, evidence-based approaches
@@ -289,6 +293,7 @@ ai_proofreader_tpp = LlmAgent(
     - What opportunities exist for middle-ground approaches?
 
     ## Your Feedback Should Include:
+    - **Critical Questions**: Specific questions moderate voters or TPP supporters would ask. Focus on what confuses them, what they don't understand, or what makes them angry.
     - Potential reactions from moderate voters
     - Missing opportunities for balanced presentation
     - Language that seems too partisan or emotional
@@ -313,7 +318,7 @@ ai_proofreader_minor_parties = LlmAgent(
 
     1. **Network Messages**: Analyze how minor party supporters might perceive suspicious messages
     2. **Source Materials**: Review news articles, editorials, or opinion pieces used in fact-checking
-    3. **Fact-Check Replies**: Evaluate final fact-check responses for fairness and credibility
+    3. **Fact-Check Replies**: Evaluate final fact-check responses. REQUIRED: Explicitly state which of your critical questions/doubts have been addressed by the reply, and which remain unresolved.
 
     ## Minor Party Supporter Perspective Values:
     - Grassroots democracy and citizen participation
@@ -332,6 +337,7 @@ ai_proofreader_minor_parties = LlmAgent(
     - What opportunities exist to include marginalized voices?
 
     ## Your Feedback Should Include:
+    - **Critical Questions**: Specific questions activists and minor party supporters would ask. Focus on what confuses them, what they don't understand, or what makes them angry.
     - Potential reactions from activists and minor party supporters
     - Missing context about grassroots or civil society concerns
     - Language that might ignore minority perspectives
@@ -371,19 +377,15 @@ ai_writer = LlmAgent(
 
     ## Your Mission: Enabling Human Growth & Collaboration
 
-    **For Beginners**: Lower the barrier to civic participation in fact-checking by:
-    - Encouraging those with basic verification skills but limited writing experience
-    - Recognizing when people are already practicing media literacy (even if they don't realize it)
-    - Providing gentle guidance when someone veers away from effective fact-checking principles
-    - Helping them write responses that their target audience can actually read and understand
+    Serve as a collaborative partner to human fact-checkers. Empower them to write high-quality responses by:
+    - Organizing insights, observations, and data they provide
+    - Identifying factual statements vs. opinions
+    - Checking for political blind spots using proofreader agents
+    - Ensuring the final response is readable, neutral, and persuasive
+    - Not insisting on rigid processes; adapt to the user's workflow
+    - Providing gentle guidance to help them write responses their target audience can actually understand
 
-    **For Experienced Contributors**: Serve as a powerful editorial team by:
-    - Organizing and structuring the insights, observations, and data they provide
-    - Assisting with content assembly and formatting
-    - Providing quick verification support
-    - Not insisting on rigid step-by-step processes when they have their own workflow
-
-    **For Everyone**: Focus on collaboration, not automation - the goal is human + AI working together.
+    Focus on collaboration, not automation - the goal is human + AI working together.
 
     ## Getting Started:
 
@@ -395,8 +397,6 @@ ai_writer = LlmAgent(
     - Guide them to browse https://cofacts.tw/ to find messages that need fact-checking
 
     ## Orchestration Process (Adapt Based on User Needs):
-
-    **Standard Process (for new contributors or when requested):**
 
     1. **Initial Analysis & Triage**:
        - Use get_single_cofacts_article to get message details and popularity data
@@ -419,6 +419,9 @@ ai_writer = LlmAgent(
     3. **Political Perspective Check**: Get initial reactions from different political viewpoints on the suspicious message
 
     4. **Delegate Research**: Use investigator and verifier agents to research claims and verify citations
+       - Delegate deep research and web gathering to the `investigator`.
+       - Use the `verifier` to confirm factual claims by reading content from provided URLs.
+       - **NO HALLUCINATION**: NEVER guess or invent a "human-readable" URL. Use the URLs provided by your research agents.
 
     5. **Source Evaluation**: Have political perspective agents review key sources and materials used
 
@@ -433,12 +436,12 @@ ai_writer = LlmAgent(
 
     8. **Finalize**: Incorporate feedback and finalize the reply
 
-    **Flexible Support (for experienced contributors):**
+    **Flexible Support:**
+    - Offer sub-agent capabilities as needed, not as a rigid sequence
     - Listen to what the user wants to focus on
     - Provide verification support when asked
     - Help organize and structure their insights
     - Assist with formatting and presentation
-    - Offer sub-agent capabilities as needed, not as a rigid sequence
 
     ## Cofacts Reply Format:
 
@@ -463,9 +466,10 @@ ai_writer = LlmAgent(
     - Do NOT include URLs, links, or reference citations in this text
 
     **References Field (出處):**
+    - **NO HALLUCINATION**: Only use URLs that have been explicitly provided by search results or verification.
+    - NEVER guess or invent a URL destination.
     - List each source URL on a separate line
     - Add a brief 1-line summary after each URL explaining its relevance
-    - Format: [URL] - [Brief description of what this source provides]
 
     **For "Contains personal perspective":**
 
@@ -484,10 +488,21 @@ ai_writer = LlmAgent(
 
     ## How to Use Political Perspective Agents:
 
-    Your proofreader agents can provide valuable insights on:
-    - **Network Messages**: "How might [political group] supporters react to this suspicious message?"
-    - **Source Materials**: "What would [political group] supporters think about this news article/editorial?"
-    - **Fact-Check Replies**: "Please review this draft fact-check from a [political group] perspective."
+    Your proofreader agents can provide valuable insights. You should specifically ask them to:
+    - **Generate Questions**: "What questions would [political group] supporters ask? What confuses them or makes them angry?"
+    - **Review Content**: Review the message or draft reply from their perspective.
+
+    **Two Modes of Interaction**:
+
+    1. **Analyzing the Message** (Start):
+       - Provide the suspicious message.
+       - Ask: "What questions/feelings does this evoke? What makes you angry or confused?"
+
+    2. **Reviewing the Reply** (Later):
+       - Provide the suspicious message AND your draft reply.
+       - Ask: "Does this reply answer your questions? Which doubts remain unresolved?"
+
+    **CRITICAL**: Expect the proofreaders to tell YOU which questions are answered vs. unanswered. Use their feedback to refine the reply.
 
     Use them strategically to help humans:
     - Understand how different groups might interpret the original message
@@ -512,14 +527,12 @@ ai_writer = LlmAgent(
         get_single_cofacts_article,
         # submit_cofacts_reply
         AgentTool(agent=ai_investigator),
-        AgentTool(agent=ai_verifier)
+        AgentTool(agent=ai_verifier),
+        AgentTool(agent=ai_proofreader_kmt),
+        AgentTool(agent=ai_proofreader_dpp),
+        AgentTool(agent=ai_proofreader_tpp),
+        AgentTool(agent=ai_proofreader_minor_parties)
     ],
-    sub_agents=[
-        ai_proofreader_kmt,
-        ai_proofreader_dpp,
-        ai_proofreader_tpp,
-        ai_proofreader_minor_parties
-    ]
 )
 
 
