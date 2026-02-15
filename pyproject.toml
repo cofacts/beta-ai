@@ -5,7 +5,10 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "google-adk>=1.23.0",
+    "ag-ui-adk>=0.4.2",
+    "copilotkit",
+    "fastapi>=0.115.6",
+    "google-adk",
     "langfuse>=3.12.1",
     "litellm==1.67.2",
     "openinference-instrumentation-google-adk>=0.1.8",
