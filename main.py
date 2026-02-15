@@ -1,6 +1,9 @@
 import os
 from openinference.instrumentation.google_adk import GoogleADKInstrumentor
 from langfuse import get_client
+from fastapi import FastAPI
+from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
+from cofacts_ai.agent import ai_writer
 
 LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
@@ -32,25 +35,25 @@ if LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY:
 else:
     print("Langfuse credentials not set. Tracing and Langfuse client will be disabled.")
 
-from fastapi import FastAPI
-from google.adk.cli.fast_api import get_fast_api_app
+# Initialize FastAPI app
+app = FastAPI(title="Cofacts AI CopilotKit Agent")
 
-# Get the directory where main.py is located
-AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
-# Example allowed origins for CORS
-ALLOWED_ORIGINS = []
-# Set web=True if you intend to serve a web interface, False otherwise
-SERVE_WEB_INTERFACE = True
-
-# Call the function to get the FastAPI app instance
-# Ensure the agent directory name ('capital_agent') matches your agent folder
-app: FastAPI = get_fast_api_app(
-  agents_dir=AGENT_DIR,
-  allow_origins=ALLOWED_ORIGINS,
-  web=SERVE_WEB_INTERFACE,
+# Wrap the ADK agent with ADK Middleware
+# We use ai_writer as the main entry agent
+adk_agent = ADKAgent(
+    adk_agent=ai_writer,
+    app_name="cofacts_ai",
+    user_id="demo_user",
+    session_timeout_seconds=3600,
+    use_in_memory_services=True
 )
 
+# Add the ADK endpoint to the FastAPI app
+# This exposes the agent via AG-UI protocol at the root path
+add_adk_fastapi_endpoint(app, adk_agent, path="/")
+
 if __name__ == "__main__":
-  import uvicorn
-  # Use the PORT environment variable provided by Cloud Run, defaulting to 8080
-  uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    import uvicorn
+    # Use the PORT environment variable provided by Cloud Run, defaulting to 8080
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run(app, host="0.0.0.0", port=port)
