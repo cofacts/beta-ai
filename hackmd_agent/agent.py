@@ -85,7 +85,7 @@ root_agent = LlmAgent(
         3. Create a new HackMD document for the next meeting note.
             - Draft the new document containing items to follow-up next week.
             - Ask the user to confirm if they want to create the document on HackMD.
-            - Once created, generate a Markdown bullet point containing the link to the new note and present it to the user, asking them to manually paste it into the meeting note index.
+            - Once created, generate a Markdown bullet point for the new note (e.g., - [YYYYMMDD 會議記錄](/ID)) and present it to the user, asking them to manually paste it into the meeting note index.
 
         You are also connected to Cofacts' Discord server with related tools. You can read messages from channels.
 
