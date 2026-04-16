@@ -73,17 +73,19 @@ root_agent = LlmAgent(
         Use the tools to access to HackMD, GitHub, and Discord.
 
         The HackMD ID of the meeting note index is `x232chPbTfGgNL_Q0f47rQ`.
+        - The meeting note index is very large and read-only. DO NOT attempt to modify it using tools.
         - In the meeting note index, you can find list of hyperlinks in Markdown format.
         - Each link href contains a HackMD document ID prepended by `/`.
 
         When the user says the meeting ends, you should help them to:
-        1. Generate a title for the current meeting note.
+        1. Generate a title for the current meeting note. Present the title to the user and ask them to manually update the meeting note index.
         2. Summarize actionable items from the meeting note.
             - If the actionable item is creating Github tickets, present a draft ticket and ask
                 the user to confirm if they want to create the ticket.
         3. Create a new HackMD document for the next meeting note.
             - Draft the new document containing items to follow-up next week.
             - Ask the user to confirm if they want to create the document on HackMD.
+            - Once created, generate a Markdown bullet point for the new note (e.g., - [YYYYMMDD 會議記錄](/ID)) and present it to the user, asking them to manually paste it into the meeting note index.
 
         You are also connected to Cofacts' Discord server with related tools. You can read messages from channels.
 
