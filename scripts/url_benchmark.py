@@ -1,6 +1,5 @@
 import asyncio
 import os
-import datetime
 import argparse
 import httpx
 import difflib
@@ -309,8 +308,7 @@ def run_benchmark(selected_method: str = None, custom_run_name: str = None):
     for tech_name, task_fn in methods_to_run.items():
         print(f"🚀 開始執行技術評測：[{tech_name}]")
 
-        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        run_name = f"{custom_run_name}-{timestamp}" if custom_run_name else f"{tech_name}-{timestamp}"
+        run_name = custom_run_name if custom_run_name else tech_name
 
         result = dataset.run_experiment(
             name=run_name,
