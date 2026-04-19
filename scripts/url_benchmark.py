@@ -1,3 +1,26 @@
+"""
+Cofacts URL Extraction Benchmark
+
+Usage:
+    uv run --env-file .env python scripts/url_benchmark.py [options]
+
+Options:
+    -m, --method {cf-browser, url-resolver, url-context, computer-use}
+        Specify the extraction method to run (default: all)
+    -r, --run-name <NAME>
+        Custom run name for identification in Langfuse
+
+Methods:
+    cf-browser    - Cloudflare Browser Rendering (JSON schema extraction)
+    url-resolver  - Legacy gRPC url-resolver (Internal baseline)
+    url-context   - Gemini 2.5 Pro native URL Context tool
+    computer-use  - ADK Agentic Browser (Playwright / Computer Use)
+
+Environment:
+    Requires .env with LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL,
+    and GOOGLE_API_KEY (for Gemini) or CLOUDFLARE_ credentials.
+"""
+
 import asyncio
 import os
 import argparse
