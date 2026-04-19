@@ -38,47 +38,78 @@ def calculate_similarity(expected: str, actual: str) -> float:
 class Extractors:
 
     @staticmethod
-    async def extract_unfurl(url: str) -> Dict[str, Any]:
+    async def extract_cloudflare_browser(url: str) -> Dict[str, Any]:
         """
-        技術 A: 輕量級 Unfurl / Metadata 解析
+        技術 A: Cloudflare Browser Run JSON Endpoint
         """
         try:
-            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-                response = await client.get(url)
-                soup = BeautifulSoup(response.content, "html.parser")
+            cf_account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+            cf_api_token = os.environ.get("CLOUDFLARE_API_TOKEN")
 
-                title = ""
-                if soup.title:
-                    title = soup.title.string
-                og_title = soup.find("meta", property="og:title")
-                if og_title and og_title.get("content"):
-                    title = og_title.get("content")
-
-                summary = ""
-                description = soup.find("meta", attrs={"name": "description"})
-                if description and description.get("content"):
-                    summary = description.get("content")
-                og_description = soup.find("meta", property="og:description")
-                if og_description and og_description.get("content"):
-                    summary = og_description.get("content")
-
-                top_image_url = ""
-                og_image = soup.find("meta", property="og:image")
-                if og_image and og_image.get("content"):
-                    top_image_url = og_image.get("content")
-
+            if not cf_account_id or not cf_api_token:
                 return {
-                    "method": "unfurl",
+                    "method": "cloudflare-browser-json",
                     "url": url,
-                    "title": title or "",
-                    "summary": summary or "",
-                    "topImageUrl": top_image_url or "",
-                    "status": response.status_code,
-                    "error": None
+                    "title": "",
+                    "summary": "",
+                    "topImageUrl": "",
+                    "status": 500,
+                    "error": "Missing CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN"
                 }
+
+            endpoint = f"https://api.cloudflare.com/client/v4/accounts/{cf_account_id}/browser-rendering/json"
+
+            payload = {
+                "url": url,
+                "prompt": "Extract the main content from this webpage. Provide the title of the page, a brief summary or transcription of the main content, and the main image URL if one exists (like og:image).",
+                "response_format": {
+                    "type": "json_schema",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "title": { "type": "string" },
+                            "summary": { "type": "string" },
+                            "topImageUrl": { "type": "string" }
+                        },
+                        "required": ["title", "summary"]
+                    }
+                }
+            }
+
+            headers = {
+                "authorization": f"Bearer {cf_api_token}",
+                "content-type": "application/json"
+            }
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(endpoint, json=payload, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+
+                if data.get("success"):
+                    result = data.get("result", {})
+                    return {
+                        "method": "cloudflare-browser-json",
+                        "url": url,
+                        "title": result.get("title", ""),
+                        "summary": result.get("summary", ""),
+                        "topImageUrl": result.get("topImageUrl", ""),
+                        "status": 200,
+                        "error": None
+                    }
+                else:
+                    return {
+                        "method": "cloudflare-browser-json",
+                        "url": url,
+                        "title": "",
+                        "summary": "",
+                        "topImageUrl": "",
+                        "status": response.status_code,
+                        "error": str(data.get("errors", "Unknown error"))
+                    }
         except Exception as e:
             return {
-                "method": "unfurl",
+                "method": "cloudflare-browser-json",
                 "url": url,
                 "title": "",
                 "summary": "",
@@ -244,7 +275,7 @@ async def run_benchmark(selected_method: str = None, custom_run_name: str = None
 
     # 將方法對應到執行函式
     all_methods = {
-        "Tech-A-Unfurl": Extractors.extract_unfurl,
+        "Tech-A-Cloudflare-Browser": Extractors.extract_cloudflare_browser,
         "Tech-B-Legacy-Resolver": Extractors.extract_legacy_url_resolver,
         "Tech-C-Gemini-URL": Extractors.extract_gemini_context,
         "Tech-D-Agent-Browser": Extractors.extract_agent_browser,
@@ -347,7 +378,7 @@ if __name__ == "__main__":
         "-m", "--method",
         type=str,
         choices=[
-            "Tech-A-Unfurl",
+            "Tech-A-Cloudflare-Browser",
             "Tech-B-Legacy-Resolver",
             "Tech-C-Gemini-URL",
             "Tech-D-Agent-Browser"
