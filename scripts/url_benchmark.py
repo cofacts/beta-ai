@@ -136,8 +136,8 @@ async def task_url_resolver(*, item, **kwargs) -> Dict[str, Any]:
     print(f"  🔍 解析中: {url}")
 
     import grpc
-    import src.typeDefs.url_resolver_pb2 as url_resolver_pb2
-    import src.typeDefs.url_resolver_pb2_grpc as url_resolver_pb2_grpc
+    import url_resolver_pb2
+    import url_resolver_pb2_grpc
 
     channel = grpc.aio.insecure_channel('localhost:4000')
     stub = url_resolver_pb2_grpc.UrlResolverStub(channel)
