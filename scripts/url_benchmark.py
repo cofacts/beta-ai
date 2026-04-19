@@ -6,7 +6,7 @@ import httpx
 import difflib
 import json
 from bs4 import BeautifulSoup
-from langfuse import Langfuse
+from langfuse import get_client, Langfuse
 from typing import Dict, Any
 
 # ============================================================================
@@ -15,7 +15,7 @@ from typing import Dict, Any
 DATASET_NAME = "urls"
 
 # 初始化 Langfuse Client (會自動讀取環境變數 LANGFUSE_PUBLIC_KEY 等)
-langfuse = Langfuse()
+langfuse = get_client()
 
 # ============================================================================
 # 工具函式：計算字串相似度
@@ -289,13 +289,22 @@ async def run_benchmark(selected_method: str = None, custom_run_name: str = None
         "Tech-D-Agent-Browser": Extractors.extract_agent_browser,
     }
 
+    # 短別名：A/B/C/D → 完整方法名稱
+    aliases = {
+        "A": "Tech-A-Cloudflare-Browser",
+        "B": "Tech-B-Legacy-Resolver",
+        "C": "Tech-C-Gemini-URL",
+        "D": "Tech-D-Agent-Browser",
+    }
+
     # 如果有指定特定的方法，過濾出該方法；否則跑全部
     methods_to_run = all_methods
     if selected_method:
-        if selected_method not in all_methods:
+        resolved = aliases.get(selected_method.upper(), selected_method)
+        if resolved not in all_methods:
             print(f"❌ 找不到指定的方法: {selected_method}")
             return
-        methods_to_run = {selected_method: all_methods[selected_method]}
+        methods_to_run = {resolved: all_methods[resolved]}
 
     # 開始依序執行所選的技術
     for tech_name, extractor_fn in methods_to_run.items():
@@ -309,70 +318,66 @@ async def run_benchmark(selected_method: str = None, custom_run_name: str = None
             run_name = f"{tech_name}-Run-{timestamp}"
 
         for item in dataset.items:
-            target_url = item.input.get("url")
+            # Handle both dict and string inputs from Langfuse dataset
+            input_val = item.input
+            target_url = input_val.get("url") if isinstance(input_val, dict) else input_val
+
             if not target_url:
                 continue
 
             print(f"  🔍 解析中: {target_url}")
 
-            start_time = datetime.datetime.now()
-            output_data = None
-            error_data = None
+            # 使用 item.run() context manager 自動建立 trace 並連結至 dataset item
+            with item.run(
+                run_name=run_name,
+                run_metadata={"tech": tech_name},
+            ) as root_span:
+                output_data = None
+                error_data = None
 
-            try:
-                # 執行解析
-                output_data = await extractor_fn(target_url)
-            except Exception as e:
-                print(f"  ❌ 解析失敗: {str(e)}")
-                error_data = str(e)
+                # 建立 Generation observation 紀錄
+                with langfuse.start_as_current_observation(
+                    as_type="generation",
+                    name=f"Extract-{tech_name}",
+                    model=tech_name,
+                    input={"url": target_url},
+                ) as generation:
+                    try:
+                        # 執行解析
+                        output_data = await extractor_fn(target_url)
+                        generation.update(output=output_data)
+                    except Exception as e:
+                        print(f"  ❌ 解析失敗: {str(e)}")
+                        error_data = str(e)
+                        generation.update(output={"error": error_data})
 
-            end_time = datetime.datetime.now()
+                # ====================================================================
+                # 計算並上傳 Similarity Score (如果 Dataset 有預期結果)
+                # ====================================================================
+                expected = item.expected_output
+                if output_data and not error_data and expected and isinstance(expected, dict):
+                    # 1. 分別計算 3 個欄位的分數
+                    title_score = calculate_similarity(expected.get("title"), output_data.get("title"))
+                    summary_score = calculate_similarity(expected.get("summary"), output_data.get("summary"))
+                    img_score = calculate_similarity(expected.get("topImageUrl"), output_data.get("topImageUrl"))
 
-            # 建立 Langfuse Generation 紀錄
-            generation = langfuse.generation(
-                name=f"Extract-{tech_name}",
-                model=tech_name, # 使用 model 欄位來區分不同技術，方便在 UI 比較
-                input={"url": target_url},
-                output={"error": error_data} if error_data else output_data,
-                start_time=start_time,
-                end_time=end_time,
-            )
+                    # 2. 計算綜合評分 (此處以等權重算術平均為例)
+                    overall_score = (title_score + summary_score + img_score) / 3.0
 
-            # ====================================================================
-            # 計算並上傳 Similarity Score (如果 Dataset 有預期結果)
-            # ====================================================================
-            expected = item.expected_output
-            if output_data and not error_data and expected and isinstance(expected, dict):
-                # 1. 分別計算 3 個欄位的分數
-                title_score = calculate_similarity(expected.get("title"), output_data.get("title"))
-                summary_score = calculate_similarity(expected.get("summary"), output_data.get("summary"))
-                img_score = calculate_similarity(expected.get("topImageUrl"), output_data.get("topImageUrl"))
+                    # 3. 將分數送回 Langfuse 綁定至該 trace
+                    scores = [
+                        ("title_similarity", title_score),
+                        ("summary_similarity", summary_score),
+                        ("image_similarity", img_score),
+                        ("overall_similarity", overall_score)
+                    ]
 
-                # 2. 計算綜合評分 (此處以等權重算術平均為例)
-                overall_score = (title_score + summary_score + img_score) / 3.0
-
-                # 3. 將分數送回 Langfuse 綁定至該 Generation
-                scores = [
-                    ("title_similarity", title_score),
-                    ("summary_similarity", summary_score),
-                    ("image_similarity", img_score),
-                    ("overall_similarity", overall_score)
-                ]
-
-                for score_name, score_value in scores:
-                    langfuse.score(
-                        trace_id=generation.trace_id,
-                        observation_id=generation.id,
-                        name=score_name,
-                        value=score_value
-                    )
-            # ====================================================================
-
-            # 將 Generation 連結至 Dataset Item
-            item.link(
-                generation,
-                run_name=run_name
-            )
+                    for score_name, score_value in scores:
+                        root_span.score_trace(
+                            name=score_name,
+                            value=score_value,
+                        )
+                # ====================================================================
 
         print(f"✅ [{tech_name}] 執行完畢！\n")
 
@@ -386,12 +391,14 @@ if __name__ == "__main__":
         "-m", "--method",
         type=str,
         choices=[
+            "A", "B", "C", "D",
             "Tech-A-Cloudflare-Browser",
             "Tech-B-Legacy-Resolver",
             "Tech-C-Gemini-URL",
-            "Tech-D-Agent-Browser"
+            "Tech-D-Agent-Browser",
         ],
-        help="指定要單獨執行的解析方法 (預設為全部執行)"
+        metavar="{A,B,C,D}",
+        help="指定要單獨執行的解析方法 (A=Cloudflare, B=Legacy, C=Gemini, D=Agent；預設為全部執行)"
     )
     parser.add_argument(
         "-r", "--run-name",
