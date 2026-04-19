@@ -173,18 +173,18 @@ class Extractors:
         """
         from google import genai
         from google.genai import types
-        import pydantic
         import os
+        import re
 
-        class ExtractedData(pydantic.BaseModel):
-            title: str
-            summary: str
-            topImageUrl: str
-
-        prompt = f"""
-Please read the following URL and extract its main content.
+        prompt = f"""Please read the following URL and extract its main content.
 URL: {url}
-"""
+
+Return a JSON object with exactly these fields (no markdown, no code block):
+{{
+  "title": "<page title>",
+  "summary": "<brief summary in Traditional Chinese>",
+  "topImageUrl": "<URL of main image, or empty string if none>"
+}}"""
 
         try:
             client = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY"))
@@ -192,15 +192,17 @@ URL: {url}
                 model="gemini-2.5-pro",
                 contents=prompt,
                 config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=ExtractedData,
-                    tools=[types.Tool(google_search=types.GoogleSearch())]
+                    tools=[types.Tool(url_context=types.UrlContext())]
                 )
             )
 
-            # The response is JSON text
-            result_text = response.text
-            parsed = json.loads(result_text)
+            result_text = response.text.strip()
+
+            # 移除可能的 markdown code block
+            result_text = re.sub(r"^```(?:json)?\s*", "", result_text)
+            result_text = re.sub(r"\s*```$", "", result_text)
+
+            parsed = json.loads(result_text.strip())
 
             return {
                 "method": "gemini-url-context",
