@@ -308,7 +308,7 @@ async def run_benchmark(selected_method: str = None, custom_run_name: str = None
         if custom_run_name:
             run_name = f"{custom_run_name}-{timestamp}"
         else:
-            run_name = f"{tech_name}-Run-{timestamp}"
+            run_name = f"{tech_name}-{timestamp}"
 
         for item in dataset.items:
             # Handle both dict and string inputs from Langfuse dataset
@@ -323,7 +323,7 @@ async def run_benchmark(selected_method: str = None, custom_run_name: str = None
             # 使用 item.run() context manager 自動建立 trace 並連結至 dataset item
             with item.run(
                 run_name=run_name,
-                run_description=f"Extract {target_url} using {tech_name}",
+                run_description=f"{tech_name}",
                 run_metadata={"tech": tech_name},
             ) as root_span:
                 output_data = None
