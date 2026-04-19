@@ -340,6 +340,7 @@ def run_benchmark(selected_method: str = None, custom_run_name: str = None):
             evaluators=[title_evaluator, summary_evaluator, image_evaluator],
             run_evaluators=[avg_title, avg_summary, avg_image],
             metadata={"tech": tech_name},
+            max_concurrency=3,
         )
 
         print(result.format())
