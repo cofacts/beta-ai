@@ -22,7 +22,7 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-import resolve_error_pb2 as src_dot_typeDefs_dot_resolve__error__pb2
+from . import resolve_error_pb2 as src_dot_typeDefs_dot_resolve__error__pb2
 
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1fsrc/typeDefs/url_resolver.proto\x12\x0curl_resolver\x1a src/typeDefs/resolve_error.proto\"\x1b\n\x0bUrlsRequest\x12\x0c\n\x04urls\x18\x01 \x03(\t\"2\n\tUrlsReply\x12%\n\x05reply\x18\x01 \x03(\x0b\x32\x16.url_resolver.UrlReply\"\xd8\x01\n\x08UrlReply\x12\x0b\n\x03url\x18\x01 \x01(\t\x12\x11\n\tcanonical\x18\x02 \x01(\t\x12\r\n\x05title\x18\x03 \x01(\t\x12\x0f\n\x07summary\x18\x04 \x01(\t\x12\x15\n\rtop_image_url\x18\x05 \x01(\t\x12\x0c\n\x04html\x18\x06 \x01(\t\x12\x0e\n\x06status\x18\x07 \x01(\x05\x12,\n\x05\x65rror\x18\x08 \x01(\x0e\x32\x1b.resolve_error.ResolveErrorH\x00\x12\x1f\n\x15successfully_resolved\x18\t \x01(\x08H\x00\x42\x08\n\x06result2R\n\x0bUrlResolver\x12\x43\n\nResolveUrl\x12\x19.url_resolver.UrlsRequest\x1a\x16.url_resolver.UrlReply\"\x00\x30\x01\x62\x06proto3')
