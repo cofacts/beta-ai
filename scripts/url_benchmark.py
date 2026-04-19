@@ -169,29 +169,37 @@ class Extractors:
     @staticmethod
     async def extract_gemini_context(url: str) -> Dict[str, Any]:
         """
-        技術 C: Gemini 原生 URL Context Tool
+        技術 C: Gemini 原生 URL Context Tool (使用 google-genai)
         """
-        import litellm
+        from google import genai
+        from google.genai import types
+        import pydantic
+        import os
+
+        class ExtractedData(pydantic.BaseModel):
+            title: str
+            summary: str
+            topImageUrl: str
 
         prompt = f"""
 Please read the following URL and extract its main content.
-Return ONLY a JSON object with the following keys:
-- "title": The title of the page
-- "summary": A brief summary or transcription of the main content
-- "topImageUrl": The main image URL if one exists, otherwise an empty string
-
 URL: {url}
 """
 
         try:
-            response = await litellm.acompletion(
-                model="gemini/gemini-2.5-pro",
-                messages=[{"role": "user", "content": prompt}],
-                api_key=os.environ.get("GEMINI_API_KEY"),
-                response_format={"type": "json_object"}
+            client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+            response = client.models.generate_content(
+                model="gemini-2.5-pro",
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=ExtractedData,
+                    tools=[types.Tool(google_search=types.GoogleSearch())]
+                )
             )
 
-            result_text = response.choices[0].message.content
+            # The response is JSON text
+            result_text = response.text
             parsed = json.loads(result_text)
 
             return {
