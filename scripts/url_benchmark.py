@@ -285,28 +285,19 @@ async def run_benchmark(selected_method: str = None, custom_run_name: str = None
 
     # 將方法對應到執行函式
     all_methods = {
-        "Tech-A-Cloudflare-Browser": Extractors.extract_cloudflare_browser,
-        "Tech-B-Legacy-Resolver": Extractors.extract_legacy_url_resolver,
-        "Tech-C-Gemini-URL": Extractors.extract_gemini_context,
-        "Tech-D-Agent-Browser": Extractors.extract_agent_browser,
-    }
-
-    # 短別名：A/B/C/D → 完整方法名稱
-    aliases = {
-        "A": "Tech-A-Cloudflare-Browser",
-        "B": "Tech-B-Legacy-Resolver",
-        "C": "Tech-C-Gemini-URL",
-        "D": "Tech-D-Agent-Browser",
+        "cf-browser": Extractors.extract_cloudflare_browser,
+        "url-resolver": Extractors.extract_legacy_url_resolver,
+        "url-context": Extractors.extract_gemini_context,
+        "computer-use": Extractors.extract_agent_browser,
     }
 
     # 如果有指定特定的方法，過濾出該方法；否則跑全部
     methods_to_run = all_methods
     if selected_method:
-        resolved = aliases.get(selected_method.upper(), selected_method)
-        if resolved not in all_methods:
+        if selected_method not in all_methods:
             print(f"❌ 找不到指定的方法: {selected_method}")
             return
-        methods_to_run = {resolved: all_methods[resolved]}
+        methods_to_run = {selected_method: all_methods[selected_method]}
 
     # 開始依序執行所選的技術
     for tech_name, extractor_fn in methods_to_run.items():
@@ -315,7 +306,7 @@ async def run_benchmark(selected_method: str = None, custom_run_name: str = None
         # 建立這次 Run 的唯一名稱
         timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         if custom_run_name:
-            run_name = f"{tech_name}-{custom_run_name}-{timestamp}"
+            run_name = f"{custom_run_name}-{timestamp}"
         else:
             run_name = f"{tech_name}-Run-{timestamp}"
 
@@ -332,6 +323,7 @@ async def run_benchmark(selected_method: str = None, custom_run_name: str = None
             # 使用 item.run() context manager 自動建立 trace 並連結至 dataset item
             with item.run(
                 run_name=run_name,
+                run_description=f"Extract {target_url} using {tech_name}",
                 run_metadata={"tech": tech_name},
             ) as root_span:
                 output_data = None
@@ -392,15 +384,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "-m", "--method",
         type=str,
-        choices=[
-            "A", "B", "C", "D",
-            "Tech-A-Cloudflare-Browser",
-            "Tech-B-Legacy-Resolver",
-            "Tech-C-Gemini-URL",
-            "Tech-D-Agent-Browser",
-        ],
-        metavar="{A,B,C,D}",
-        help="指定要單獨執行的解析方法 (A=Cloudflare, B=Legacy, C=Gemini, D=Agent；預設為全部執行)"
+        choices=["cf-browser", "url-resolver", "url-context", "computer-use"],
+        metavar="{cf-browser,url-resolver,url-context,computer-use}",
+        help="指定要單獨執行的解析方法 (預設為全部執行)"
     )
     parser.add_argument(
         "-r", "--run-name",
