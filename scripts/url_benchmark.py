@@ -12,7 +12,7 @@ from typing import Dict, Any
 # ============================================================================
 # 1. 初始化設定
 # ============================================================================
-DATASET_NAME = "URL-Extraction-Benchmark"
+DATASET_NAME = "urls"
 
 # 初始化 Langfuse Client (會自動讀取環境變數 LANGFUSE_PUBLIC_KEY 等)
 langfuse = Langfuse()
@@ -187,7 +187,7 @@ URL: {url}
 """
 
         try:
-            client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+            client = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY"))
             response = client.models.generate_content(
                 model="gemini-2.5-pro",
                 contents=prompt,
