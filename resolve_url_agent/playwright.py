@@ -81,12 +81,16 @@ class PlaywrightComputer(BaseComputer):
       search_engine_url: str = "https://www.google.com",
       highlight_mouse: bool = False,
       user_data_dir: Optional[str] = None,
+      cdp_url: Optional[str] = None,
+      cdp_headers: Optional[dict[str, str]] = None,
   ):
     self._initial_url = initial_url
     self._screen_size = screen_size
     self._search_engine_url = search_engine_url
     self._highlight_mouse = highlight_mouse
     self._user_data_dir = user_data_dir
+    self._cdp_url = cdp_url
+    self._cdp_headers = cdp_headers
 
   @override
   async def initialize(self):
@@ -99,7 +103,19 @@ class PlaywrightComputer(BaseComputer):
         "--disable-gpu",
     ]
 
-    if self._user_data_dir:
+    if self._cdp_url:
+      termcolor.cprint(
+          f"Connecting to remote browser via CDP: {self._cdp_url}",
+          color="cyan",
+          attrs=["bold"],
+      )
+      self._browser = await self._playwright.chromium.connect_over_cdp(
+          self._cdp_url,
+          headers=self._cdp_headers,
+      )
+      # Remote browser usually already has a context or we create a new one
+      self._context = await self._browser.new_context()
+    elif self._user_data_dir:
       termcolor.cprint(
           f"Starting playwright with persistent profile: {self._user_data_dir}",
           color="yellow",
@@ -121,7 +137,7 @@ class PlaywrightComputer(BaseComputer):
       # Launch a temporary browser instance if user_data_dir is not provided
       self._browser = await self._playwright.chromium.launch(
           args=browser_args,
-          headless=False,
+          headless=True, # Use headless for local automation if no UI needed
       )
       self._context = await self._browser.new_context()
 
@@ -135,8 +151,11 @@ class PlaywrightComputer(BaseComputer):
         "width": self._screen_size[0],
         "height": self._screen_size[1],
     })
+    # Set default timeout to 60s for slow remote rendering
+    self._page.set_default_timeout(60000)
+    
     termcolor.cprint(
-        f"Started local playwright.",
+        f"Started browser session {'(Remote CDP)' if self._cdp_url else '(Local)'}.",
         color="green",
         attrs=["bold"],
     )
@@ -276,8 +295,8 @@ class PlaywrightComputer(BaseComputer):
     return await self.navigate(self._search_engine_url)
 
   async def navigate(self, url: str) -> ComputerState:
-    await self._page.goto(url)
-    await self._page.wait_for_load_state()
+    await self._page.goto(url, wait_until="domcontentloaded")
+    await self._page.wait_for_load_state("domcontentloaded")
     return await self.current_state()
 
   async def key_combination(self, keys: list[str]) -> ComputerState:
@@ -310,10 +329,10 @@ class PlaywrightComputer(BaseComputer):
     return await self.current_state()
 
   async def current_state(self) -> ComputerState:
-    await self._page.wait_for_load_state()
+    await self._page.wait_for_load_state("domcontentloaded")
     # Even if Playwright reports the page as loaded, it may not be so.
     # Add a manual sleep to make sure the page has finished rendering.
-    time.sleep(0.5)
+    await asyncio.sleep(0.5)
     screenshot_bytes = await self._page.screenshot(type="png", full_page=False)
     return ComputerState(screenshot=screenshot_bytes, url=self._page.url)
 

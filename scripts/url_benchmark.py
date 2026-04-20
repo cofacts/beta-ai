@@ -21,8 +21,13 @@ Environment:
     and GOOGLE_API_KEY (for Gemini) or CLOUDFLARE_ credentials.
 """
 
-import asyncio
+import sys
 import os
+
+# 將專案根目錄加入 sys.path，以便 import resolve_url_agent 等模組
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import asyncio
 import argparse
 import httpx
 import difflib
@@ -225,19 +230,68 @@ async def task_computer_use(*, item, **kwargs) -> Dict[str, Any]:
     print(f"  🔍 解析中: {url}")
 
     from resolve_url_agent.agent import resolve_url_agent
+    from google.adk.runners import InMemoryRunner
+    from google.adk.sessions import InMemorySessionService
+    from google.genai import types
+    import re
 
     try:
-        result = await resolve_url_agent.run(
-            f"Please navigate to this url: {url} and extract its title, summary, and topImageUrl as requested in your instructions. Return ONLY a JSON object.",
+        # 使用 Runner 執行 Agent
+        runner = InMemoryRunner(agent=resolve_url_agent, app_name="benchmark")
+        
+        # 必須先建立 Session 才能執行
+        session_id = "default"
+        user_id = "tester"
+        await runner.session_service.create_session(
+            app_name="benchmark",
+            user_id=user_id,
+            session_id=session_id
         )
 
-        result_text = result.message.content
-        if result_text.startswith("```json"):
-            result_text = result_text[7:]
-        if result_text.endswith("```"):
-            result_text = result_text[:-3]
+        prompt = f"Please navigate to this url: {url} and extract its title, summary, and topImageUrl as requested in your instructions. Return ONLY a JSON object."
+        
+        # 執行並收集文字內容
+        final_text = ""
+        async for event in runner.run_async(
+            user_id=user_id,
+            session_id=session_id, 
+            new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt)]),
+        ):
+            # 只要有文字就收集，最後一個事件的文字通常就是結果
+            if event.content and event.content.parts:
+                for part in event.content.parts:
+                    if part.text and part.text.strip():
+                        final_text = part.text.strip()
 
-        parsed = json.loads(result_text.strip())
+        if not final_text:
+             print(f"  ⚠️ Agent 沒有回傳 final_text")
+             return {
+                "method": "computer-use", "url": url,
+                "title": "", "summary": "", "topImageUrl": "",
+                "status": 500, "error": "Agent returned no final response"
+            }
+
+        # Debug: 寫入檔案確保我們看得到回傳內容
+        with open("/tmp/debug_agent_output.txt", "w") as f:
+            f.write(final_text)
+
+        print(f"  📝 Agent 回傳內容已寫入 /tmp/debug_agent_output.txt")
+
+        # 處理 JSON (移除 markdown code blocks)
+        result_text = final_text.strip()
+        result_text = re.sub(r"^```(?:json)?\s*", "", result_text)
+        result_text = re.sub(r"\s*```$", "", result_text)
+
+        try:
+            parsed = json.loads(result_text.strip())
+        except json.JSONDecodeError as e:
+            print(f"  ❌ JSON 解析失敗: {e}")
+            return {
+                "method": "computer-use", "url": url,
+                "title": "", "summary": "", "topImageUrl": "",
+                "status": 500, "error": f"JSON parse error: {str(e)}",
+                "raw_output": final_text
+            }
 
         return {
             "method": "computer-use", "url": url,
