@@ -328,7 +328,7 @@ def summary_evaluator(*, output, expected_output, **kwargs):
 def image_evaluator(*, output, expected_output, **kwargs):
     if not _check_expected(expected_output):
         return None
-    score = calculate_similarity(expected_output.get("topImageUrl"), output.get("topImageUrl"))
+    score = calculate_similarity(expected_output.get("top_image_url"), output.get("topImageUrl"))
     return Evaluation(name="image_similarity", value=score)
 
 
