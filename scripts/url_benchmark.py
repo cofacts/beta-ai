@@ -32,6 +32,7 @@ import argparse
 import httpx
 import difflib
 import json
+import re
 from langfuse import get_client, Evaluation
 from typing import Dict, Any
 
@@ -63,6 +64,14 @@ def _get_url(item) -> str:
     """從 dataset item 取出 URL"""
     input_val = item.input
     return input_val.get("url") if isinstance(input_val, dict) else input_val
+
+
+def _parse_json_from_llm(text: str) -> dict:
+    """Extract first {...} block (DOTALL) and parse — tolerates markdown fence and surrounding text."""
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        raise json.JSONDecodeError("No JSON object found in LLM output", text, 0)
+    return json.loads(match.group(0))
 
 
 # ============================================================================
@@ -182,7 +191,6 @@ async def task_url_context(*, item, **kwargs) -> Dict[str, Any]:
 
     from google import genai
     from google.genai import types
-    import re
 
     prompt = f"""Please read the following URL and extract its main content.
 URL: {url}
@@ -204,10 +212,7 @@ Return a JSON object with exactly these fields (no markdown, no code block):
             )
         )
 
-        result_text = response.text.strip()
-        result_text = re.sub(r"^```(?:json)?\s*", "", result_text)
-        result_text = re.sub(r"\s*```$", "", result_text)
-        parsed = json.loads(result_text.strip())
+        parsed = _parse_json_from_llm(response.text)
 
         return {
             "method": "url-context", "url": url,
@@ -233,7 +238,6 @@ async def task_computer_use(*, item, **kwargs) -> Dict[str, Any]:
     from google.adk.runners import InMemoryRunner
     from google.adk.sessions import InMemorySessionService
     from google.genai import types
-    import re
 
     try:
         # 使用 Runner 執行 Agent
@@ -277,13 +281,8 @@ async def task_computer_use(*, item, **kwargs) -> Dict[str, Any]:
 
         print(f"  📝 Agent 回傳內容已寫入 /tmp/debug_agent_output.txt")
 
-        # 處理 JSON (移除 markdown code blocks)
-        result_text = final_text.strip()
-        result_text = re.sub(r"^```(?:json)?\s*", "", result_text)
-        result_text = re.sub(r"\s*```$", "", result_text)
-
         try:
-            parsed = json.loads(result_text.strip())
+            parsed = _parse_json_from_llm(final_text)
         except json.JSONDecodeError as e:
             print(f"  ❌ JSON 解析失敗: {e}")
             return {
