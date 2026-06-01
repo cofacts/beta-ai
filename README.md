@@ -28,6 +28,49 @@ uv run --env-file .env main.py
 ```
 The web interface will be available at `localhost:8080`.
 
+## Running the URL Extraction Benchmark
+
+Compares 4 strategies for extracting URL content (`cf-browser`, `url-resolver`, `url-context`, `computer-use`) and uploads scores to Langfuse.
+
+```bash
+uv run --env-file .env python scripts/url_benchmark.py [-m METHOD] [-r RUN_NAME]
+```
+
+Required env (in addition to `LANGFUSE_*`):
+
+| Method | Required env |
+|---|---|
+| `cf-browser` | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` |
+| `url-resolver` | gRPC server reachable at `URL_RESOLVER_GRPC_ENDPOINT` (default `localhost:4000`) |
+| `url-context` | `GOOGLE_API_KEY` |
+| `computer-use` | `GOOGLE_API_KEY` (+ `CLOUDFLARE_*` for remote browser, otherwise launches local Chromium) |
+
+A Langfuse dataset named `urls` must exist with each item shaped as:
+
+- `input`: `{"url": "https://..."}`
+- `expected_output`: `{"title": "...", "summary": "...", "top_image_url": "..."}`
+
+### Cloudflare API token setup
+
+For `cf-browser` and `computer-use` (when using remote browser):
+
+1. Go to https://dash.cloudflare.com/profile/api-tokens → **Create Token** → **Custom token**
+2. Permission: `Account` → `Browser Rendering` → **Edit**
+3. Account Resources: Include → Specific account → Cofacts
+4. Leave Zone Resources / Client IP Filtering empty; set a TTL (6–12 months)
+5. Account ID: any domain page in dashboard, right sidebar **API** section
+
+Verify the token works against the actual benchmark endpoint:
+
+```bash
+curl -X POST "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/browser-rendering/json" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com","prompt":"What is the page title?","response_format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}}}'
+```
+
+Account-owned tokens (prefix `cfat_`) cannot call `/user/tokens/verify` or `/accounts/{id}` — that is expected; only the scoped resource endpoints work.
+
 ## Running with Docker Compose
 
 1. Copy the sample environment file and edit it as needed:
