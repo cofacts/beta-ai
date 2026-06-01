@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
-import time
 from typing import Literal
 from typing import Optional
 
@@ -166,21 +165,23 @@ class PlaywrightComputer(BaseComputer):
 
   @override
   async def close(self, exc_type, exc_val, exc_tb):
-    if self._context:
-      self._context.close()
-    try:
-      self._browser.close()
-    except Exception as e:
-      # Browser was already shut down because of SIGINT or such.
-      if (
-          "Browser.close: Connection closed while reading from the driver"
-          in str(e)
-      ):
-        pass
-      else:
-        raise
+    if getattr(self, "_context", None):
+      await self._context.close()
+    if getattr(self, "_browser", None):
+      try:
+        await self._browser.close()
+      except Exception as e:
+        # Browser was already shut down because of SIGINT or such.
+        if (
+            "Browser.close: Connection closed while reading from the driver"
+            in str(e)
+        ):
+          pass
+        else:
+          raise
 
-    self._playwright.stop()
+    if getattr(self, "_playwright", None):
+      await self._playwright.stop()
 
   async def open_web_browser(self) -> ComputerState:
     return await self.current_state()
@@ -366,4 +367,4 @@ class PlaywrightComputer(BaseComputer):
         }}
     """)
     # Wait a bit for the user to see the cursor.
-    time.sleep(1)
+    await asyncio.sleep(1)
