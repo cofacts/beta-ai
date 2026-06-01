@@ -115,7 +115,7 @@ async def task_cf_browser(*, item, **kwargs) -> Dict[str, Any]:
     }
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(endpoint, json=payload, headers=headers)
             response.raise_for_status()
             data = response.json()
