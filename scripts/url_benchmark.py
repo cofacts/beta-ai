@@ -153,7 +153,8 @@ async def task_url_resolver(*, item, **kwargs) -> Dict[str, Any]:
     from url_resolver_proto import url_resolver_pb2
     from url_resolver_proto import url_resolver_pb2_grpc
 
-    channel = grpc.aio.insecure_channel('localhost:4000')
+    endpoint = os.environ.get('URL_RESOLVER_GRPC_ENDPOINT', 'localhost:4000')
+    channel = grpc.aio.insecure_channel(endpoint)
     stub = url_resolver_pb2_grpc.UrlResolverStub(channel)
     request = url_resolver_pb2.UrlsRequest(urls=[url])
 
