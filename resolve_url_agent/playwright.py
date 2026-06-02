@@ -331,11 +331,18 @@ class PlaywrightComputer(BaseComputer):
     return await self.current_state()
 
   async def current_state(self) -> ComputerState:
-    await self._page.wait_for_load_state("domcontentloaded")
-    # Even if Playwright reports the page as loaded, it may not be so.
-    # Add a manual sleep to make sure the page has finished rendering.
+    try:
+      await self._page.wait_for_load_state("domcontentloaded", timeout=10000)
+    except Exception:
+      pass
     await asyncio.sleep(0.5)
-    screenshot_bytes = await self._page.screenshot(type="png", full_page=False)
+    screenshot_bytes = await self._page.screenshot(
+        type="png",
+        full_page=False,
+        animations="disabled",
+        caret="initial",
+        timeout=15000,
+    )
     return ComputerState(screenshot=screenshot_bytes, url=self._page.url)
 
   async def screen_size(self) -> tuple[int, int]:
