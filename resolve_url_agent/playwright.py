@@ -140,11 +140,12 @@ class PlaywrightComputer(BaseComputer):
       )
       self._context = await self._browser.new_context()
 
-    if not self._context.pages:
-      self._page = await self._context.new_page()
-      await self._page.goto(self._initial_url)
+    if self._context.pages:
+      self._page = self._context.pages[0]
     else:
-      self._page = self._context.pages[0]  # Use existing page if any
+      self._page = await self._context.new_page()
+
+    await self._page.goto(self._initial_url, wait_until="domcontentloaded")
 
     await self._page.set_viewport_size({
         "width": self._screen_size[0],
