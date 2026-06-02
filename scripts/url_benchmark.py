@@ -354,7 +354,7 @@ avg_image = _make_avg_run_evaluator("image_similarity")
 # ============================================================================
 # 4. 核心 Benchmark 執行邏輯
 # ============================================================================
-def run_benchmark(selected_method: str = None, custom_run_name: str = None):
+def run_benchmark(selected_method: str = None, custom_run_name: str = None, item_limit: int = None):
     print(f"[1] 正在連接 Langfuse 並取得 Dataset: {DATASET_NAME}...")
 
     try:
@@ -364,12 +364,15 @@ def run_benchmark(selected_method: str = None, custom_run_name: str = None):
         print(f"錯誤訊息: {e}")
         return
 
+    if item_limit and item_limit > 0:
+        dataset.items = dataset.items[:item_limit]
+
     print(f"✅ 成功取得 Dataset，共 {len(dataset.items)} 筆測試 URL。\n")
 
     all_methods = {
         "cf-browser": task_cf_browser,
-        "url-context": task_url_context,
         "url-resolver": task_url_resolver,
+        "url-context": task_url_context,
         "computer-use": task_computer_use,
     }
 
@@ -424,6 +427,12 @@ if __name__ == "__main__":
         type=str,
         help="自訂的 Run 標籤 (例如: new-prompt-v2)，方便在 Langfuse 上識別差異"
     )
+    parser.add_argument(
+        "-l", "--limit",
+        type=int,
+        default=None,
+        help="只跑前 N 筆 dataset items（用於 smoke test）"
+    )
 
     args = parser.parse_args()
-    run_benchmark(selected_method=args.method, custom_run_name=args.run_name)
+    run_benchmark(selected_method=args.method, custom_run_name=args.run_name, item_limit=args.limit)
