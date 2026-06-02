@@ -33,6 +33,7 @@ import httpx
 import difflib
 import json
 import re
+import uuid
 from langfuse import get_client, Evaluation
 from typing import Dict, Any
 
@@ -235,17 +236,16 @@ async def task_computer_use(*, item, **kwargs) -> Dict[str, Any]:
     url = _get_url(item)
     print(f"  🔍 解析中: {url}")
 
-    from resolve_url_agent.agent import resolve_url_agent
+    from resolve_url_agent.agent import build_resolve_url_agent
     from google.adk.runners import InMemoryRunner
-    from google.adk.sessions import InMemorySessionService
     from google.genai import types
 
     try:
-        # 使用 Runner 執行 Agent
-        runner = InMemoryRunner(agent=resolve_url_agent, app_name="benchmark")
-        
-        # 必須先建立 Session 才能執行
-        session_id = "default"
+        agent = build_resolve_url_agent(initial_url=url)
+        runner = InMemoryRunner(agent=agent, app_name="benchmark")
+
+        item_id = getattr(item, "id", None) or getattr(item, "dataset_item_id", None)
+        session_id = f"item-{item_id}" if item_id else f"item-{uuid.uuid4().hex}"
         user_id = "tester"
         await runner.session_service.create_session(
             app_name="benchmark",
@@ -253,16 +253,14 @@ async def task_computer_use(*, item, **kwargs) -> Dict[str, Any]:
             session_id=session_id
         )
 
-        prompt = f"Please navigate to this url: {url} and extract its title, summary, and topImageUrl as requested in your instructions. Return ONLY a JSON object."
-        
-        # 執行並收集文字內容
+        prompt = "Read the page that is currently open in your browser and extract its title, summary, and topImageUrl. Return ONLY a JSON object."
+
         final_text = ""
         async for event in runner.run_async(
             user_id=user_id,
-            session_id=session_id, 
+            session_id=session_id,
             new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt)]),
         ):
-            # 只要有文字就收集，最後一個事件的文字通常就是結果
             if event.content and event.content.parts:
                 for part in event.content.parts:
                     if part.text and part.text.strip():
@@ -370,9 +368,16 @@ def run_benchmark(selected_method: str = None, custom_run_name: str = None):
 
     all_methods = {
         "cf-browser": task_cf_browser,
-        "url-resolver": task_url_resolver,
         "url-context": task_url_context,
+        "url-resolver": task_url_resolver,
         "computer-use": task_computer_use,
+    }
+
+    method_concurrency = {
+        "cf-browser": 3,
+        "url-resolver": 3,
+        "url-context": 3,
+        "computer-use": 1,
     }
 
     methods_to_run = all_methods
@@ -386,6 +391,7 @@ def run_benchmark(selected_method: str = None, custom_run_name: str = None):
         print(f"🚀 開始執行技術評測：[{tech_name}]")
 
         run_name = custom_run_name if custom_run_name else tech_name
+        concurrency = method_concurrency.get(tech_name, 3)
 
         result = dataset.run_experiment(
             name=run_name,
@@ -394,7 +400,7 @@ def run_benchmark(selected_method: str = None, custom_run_name: str = None):
             evaluators=[title_evaluator, summary_evaluator, image_evaluator],
             run_evaluators=[avg_title, avg_summary, avg_image],
             metadata={"tech": tech_name},
-            max_concurrency=3,
+            max_concurrency=concurrency,
         )
 
         print(result.format())
