@@ -5,16 +5,18 @@ Usage:
     uv run --env-file .env python scripts/url_benchmark.py [options]
 
 Options:
-    -m, --method {cf-browser, url-resolver, url-context, computer-use}
+    -m, --method {cf-browser, url-resolver, url-context, computer-use, agent-friendly}
         Specify the extraction method to run (default: all)
     -r, --run-name <NAME>
         Custom run name for identification in Langfuse
 
 Methods:
-    cf-browser    - Cloudflare Browser Rendering (JSON schema extraction)
-    url-resolver  - Legacy gRPC url-resolver (Internal baseline)
-    url-context   - Gemini 2.5 Pro native URL Context tool
-    computer-use  - ADK Agentic Browser (Playwright / Computer Use)
+    cf-browser     - Cloudflare Browser Rendering (JSON schema extraction)
+    url-resolver   - Legacy gRPC url-resolver (Internal baseline)
+    url-context    - Gemini 2.5 Pro native URL Context tool
+    computer-use   - ADK Agentic Browser (Playwright / Computer Use)
+    agent-friendly - HTTP probe for `Accept: text/markdown` and `.md` suffix
+                     (https://llmstxt.org/ convention; one fetch, no browser)
 
 Environment:
     Requires .env with LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL,
@@ -73,6 +75,33 @@ def _parse_json_from_llm(text: str) -> dict:
     if not match:
         raise json.JSONDecodeError("No JSON object found in LLM output", text, 0)
     return json.loads(match.group(0))
+
+
+def _check_url_retrieval_status(response, requested_url: str) -> str:
+    """Return an error string when Gemini's URL Context fetcher failed; '' on success.
+
+    Gemini returns a natural-language apology (no exception) when fetcher is blocked,
+    so we read `candidate.url_context_metadata.url_metadata[*].url_retrieval_status`
+    directly. Any SUCCESS status counts as success.
+    """
+    candidates = getattr(response, "candidates", None) or []
+    for candidate in candidates:
+        ucm = getattr(candidate, "url_context_metadata", None)
+        if ucm is None:
+            continue
+        url_metadata = getattr(ucm, "url_metadata", None) or []
+        if not url_metadata:
+            continue
+        statuses = []
+        for um in url_metadata:
+            status = getattr(um, "url_retrieval_status", None)
+            status_str = getattr(status, "value", None) or str(status or "")
+            statuses.append(status_str)
+            if status_str.endswith("SUCCESS"):
+                return ""
+        if statuses:
+            return f"URL retrieval blocked by site (status={','.join(statuses)})"
+    return ""
 
 
 # ============================================================================
@@ -145,6 +174,176 @@ async def task_cf_browser(*, item, **kwargs) -> Dict[str, Any]:
         }
 
 
+def _md_variant_url(url: str) -> str | None:
+    """Append `.md` to a URL path per https://llmstxt.org/ convention.
+
+    Returns None when the URL already has a non-md file extension or cannot
+    be parsed.
+    """
+    from urllib.parse import urlsplit, urlunsplit
+
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return None
+    if not parts.scheme or not parts.netloc:
+        return None
+
+    path = parts.path or "/"
+    if path == "/" or path == "":
+        new_path = "/index.md"
+    elif path.endswith("/"):
+        new_path = path + "index.md"
+    else:
+        last = path.rsplit("/", 1)[-1]
+        if "." in last:
+            return None
+        new_path = path + ".md"
+
+    return urlunsplit((parts.scheme, parts.netloc, new_path, "", ""))
+
+
+def _parse_markdown_result(md: str, source_url: str) -> Dict[str, str]:
+    """Extract title (first H1), summary (first paragraph), topImageUrl from Markdown."""
+    if not md or not md.strip():
+        return {"title": "", "summary": "", "topImageUrl": ""}
+
+    body = md
+    front_matter: Dict[str, str] = {}
+    fm_match = re.match(r"^---\r?\n([\s\S]*?)\r?\n---\r?\n", md)
+    if fm_match:
+        body = md[fm_match.end():]
+        for line in fm_match.group(1).splitlines():
+            kv = re.match(r"^([A-Za-z0-9_-]+):\s*(.*)$", line)
+            if kv:
+                front_matter[kv.group(1).lower()] = kv.group(2).strip().strip("\"'")
+
+    title = ""
+    h1 = re.search(r"^#\s+(.+?)\s*$", body, re.MULTILINE)
+    if h1:
+        title = h1.group(1).strip()
+    elif front_matter.get("title"):
+        title = front_matter["title"]
+
+    summary_parts: list[str] = []
+    in_fence = False
+    for raw_line in body.splitlines():
+        line = raw_line.lstrip()
+        if line.startswith("> "):
+            line = line[2:]
+        elif line == ">":
+            line = ""
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if line.startswith("#"):
+            continue
+        if line.lstrip().startswith("!["):
+            continue
+        if line.strip() == "":
+            if summary_parts:
+                break
+            continue
+        summary_parts.append(line.strip())
+        if len(" ".join(summary_parts)) >= 600:
+            break
+
+    summary = " ".join(summary_parts)
+    summary = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", summary)
+    summary = re.sub(r"\*\*([^*]+)\*\*", r"\1", summary)
+    summary = re.sub(r"`([^`]+)`", r"\1", summary)
+    summary = summary.strip()
+    if len(summary) > 1000:
+        summary = summary[:1000] + "…"
+
+    image_url = ""
+    img_match = re.search(r"!\[[^\]]*\]\(([^)\s]+)", body)
+    if img_match:
+        image_url = img_match.group(1)
+    elif front_matter.get("image"):
+        image_url = front_matter["image"]
+
+    if image_url:
+        from urllib.parse import urljoin
+        try:
+            image_url = urljoin(source_url, image_url)
+        except Exception:
+            image_url = ""
+
+    return {"title": title, "summary": summary, "topImageUrl": image_url}
+
+
+async def task_agent_friendly(*, item, **kwargs) -> Dict[str, Any]:
+    """Probe `Accept: text/markdown` and `.md` companion URLs (no browser)."""
+    url = _get_url(item)
+    print(f"  🔍 解析中: {url}")
+
+    user_agent = os.environ.get(
+        "AGENT_FRIENDLY_USER_AGENT",
+        "CofactsBot/1.0 (+https://cofacts.tw/bot)",
+    )
+    base_headers = {"User-Agent": user_agent}
+    timeout = httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0)
+
+    async def _probe(client: httpx.AsyncClient, probe_url: str, accept: str):
+        try:
+            r = await client.get(probe_url, headers={**base_headers, "Accept": accept})
+        except Exception:
+            return None
+        if not r.is_success:
+            return None
+        ct = (r.headers.get("content-type") or "").lower()
+        if not (ct.startswith("text/markdown") or ct.startswith("text/x-markdown")):
+            return None
+        try:
+            return r.text
+        except Exception:
+            return None
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            md = await _probe(
+                client, url,
+                "text/markdown, text/x-markdown;q=0.9, text/html;q=0.5",
+            )
+            source_used = url
+
+            if not md:
+                md_url = _md_variant_url(url)
+                if md_url and md_url != url:
+                    md = await _probe(
+                        client, md_url,
+                        "text/markdown, text/x-markdown;q=0.9",
+                    )
+                    if md:
+                        source_used = md_url
+
+            if not md:
+                return {
+                    "method": "agent-friendly", "url": url,
+                    "title": "", "summary": "", "topImageUrl": "",
+                    "status": 404,
+                    "error": "No agent-friendly markdown representation",
+                }
+
+        parsed = _parse_markdown_result(md, source_used)
+        return {
+            "method": "agent-friendly", "url": url,
+            "title": parsed["title"],
+            "summary": parsed["summary"],
+            "topImageUrl": parsed["topImageUrl"],
+            "status": 200, "error": None,
+        }
+    except Exception as e:
+        return {
+            "method": "agent-friendly", "url": url,
+            "title": "", "summary": "", "topImageUrl": "",
+            "status": 500, "error": str(e),
+        }
+
+
 async def task_url_resolver(*, item, **kwargs) -> Dict[str, Any]:
     """技術 B: 舊版 url-resolver (Baseline, gRPC)"""
     url = _get_url(item)
@@ -213,6 +412,17 @@ Return a JSON object with exactly these fields (no markdown, no code block):
                 tools=[types.Tool(url_context=types.UrlContext())]
             )
         )
+
+        # Surface URL Context fetcher failures (paywall / login wall / anti-bot)
+        # before attempting to parse — otherwise we get a misleading
+        # "No JSON object found" when the model returned a polite apology string.
+        retrieval_failure = _check_url_retrieval_status(response, url)
+        if retrieval_failure:
+            return {
+                "method": "url-context", "url": url,
+                "title": "", "summary": "", "topImageUrl": "",
+                "status": 502, "error": retrieval_failure,
+            }
 
         parsed = _parse_json_from_llm(response.text)
 
@@ -374,6 +584,7 @@ def run_benchmark(selected_method: str = None, custom_run_name: str = None, item
         "url-resolver": task_url_resolver,
         "url-context": task_url_context,
         "computer-use": task_computer_use,
+        "agent-friendly": task_agent_friendly,
     }
 
     method_concurrency = {
@@ -381,6 +592,7 @@ def run_benchmark(selected_method: str = None, custom_run_name: str = None, item
         "url-resolver": 3,
         "url-context": 3,
         "computer-use": 1,
+        "agent-friendly": 5,
     }
 
     methods_to_run = all_methods
@@ -418,8 +630,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "-m", "--method",
         type=str,
-        choices=["cf-browser", "url-resolver", "url-context", "computer-use"],
-        metavar="{cf-browser,url-resolver,url-context,computer-use}",
+        choices=["cf-browser", "url-resolver", "url-context", "computer-use", "agent-friendly"],
+        metavar="{cf-browser,url-resolver,url-context,computer-use,agent-friendly}",
         help="指定要單獨執行的解析方法 (預設為全部執行)"
     )
     parser.add_argument(
